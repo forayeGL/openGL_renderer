@@ -1,0 +1,5 @@
+# ignore the viusal studio configure
+.vs/
+
+# ignore the output files
+out/
