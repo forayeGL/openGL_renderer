@@ -5,7 +5,7 @@
 class Camera {
 public:
 	Camera();
-	~Camera();
+	virtual ~Camera();
 
 	glm::mat4 getViewMatrix();
 	virtual glm::mat4 getProjectionMatrix();

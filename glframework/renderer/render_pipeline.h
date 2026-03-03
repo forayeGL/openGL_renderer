@@ -4,6 +4,7 @@
 #include "../../application/camera/camera.h"
 #include "../light/pointLight.h"
 #include <vector>
+#include <memory>
 
 class Renderer;
 class Bloom;
@@ -22,13 +23,13 @@ public:
 
 	void setClearColor(glm::vec3 color);
 
-	Renderer* getRenderer() const { return mRenderer; }
-	Bloom* getBloom() const { return mBloom; }
+	Renderer* getRenderer() const { return mRenderer.get(); }
+	Bloom* getBloom() const { return mBloom.get(); }
 	Texture* getResolveColorAttachment() const { return mFboResolve->mColorAttachment; }
 
 private:
-	Renderer*    mRenderer{ nullptr };
-	Bloom*       mBloom{ nullptr };
-	Framebuffer* mFboMulti{ nullptr };
-	Framebuffer* mFboResolve{ nullptr };
+	std::unique_ptr<Renderer>    mRenderer;
+	std::unique_ptr<Bloom>       mBloom;
+	std::unique_ptr<Framebuffer> mFboMulti;
+	std::unique_ptr<Framebuffer> mFboResolve;
 };
