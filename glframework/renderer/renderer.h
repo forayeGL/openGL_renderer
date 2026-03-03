@@ -21,14 +21,14 @@ public:
 	void render(
 		Scene* scene,
 		Camera* camera,
-		std::vector<PointLight*> pointLights,
+		const std::vector<PointLight*>& pointLights,
 		unsigned int fbo = 0
 	);
 
 	void renderObject(
 		Object* object,
 		Camera* camera,
-		std::vector<PointLight*> pointLights
+		const std::vector<PointLight*>& pointLights
 	);
 
 	//void renderShadowMap(

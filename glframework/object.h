@@ -35,7 +35,7 @@ public:
 
 	//父子关系
 	void addChild(Object* obj);
-	std::vector<Object*>  getChildren();
+	const std::vector<Object*>& getChildren() const;
 	Object* getParent();
 
 	//获取类型信息

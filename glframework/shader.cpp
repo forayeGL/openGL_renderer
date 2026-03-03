@@ -57,7 +57,10 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath) {
 	glDeleteShader(fragment);
 }
 Shader::~Shader() {
-
+	if (mProgram) {
+		glDeleteProgram(mProgram);
+		mProgram = 0;
+	}
 }
 
 std::string Shader::loadShader(const std::string& filePath) {

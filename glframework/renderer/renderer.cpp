@@ -50,7 +50,27 @@ Renderer::Renderer() {
 }
 
 Renderer::~Renderer() {
+	delete mPhongShader;
+	delete mWhiteShader;
+	delete mDepthShader;
+	delete mOpacityMaskShader;
+	delete mScreenShader;
+	delete mCubeShader;
+	delete mPhongEnvShader;
+	delete mPhongInstanceShader;
+	delete mGrassInstanceShader;
 
+	delete mPhongNormalShader;
+	delete mPhongParallaxShader;
+
+	delete mShadowShader;
+	delete mPhongShadowShader;
+	delete mPhongCSMShadowShader;
+
+	delete mShadowDistanceShader;
+	delete mPhongPointShadowShader;
+
+	delete mPbrShader;
 }
 
 void Renderer::setClearColor(glm::vec3 color) {
@@ -67,7 +87,7 @@ void Renderer::msaaResolve(Framebuffer* src, Framebuffer* dst) {
 void Renderer::render(
 	Scene* scene,
 	Camera* camera,
-	std::vector<PointLight*> pointLights,
+	const std::vector<PointLight*>& pointLights,
 	unsigned int fbo
 ) {
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -144,7 +164,7 @@ void Renderer::projectObject(Object* obj) {
 		}
 	}
 
-	auto children = obj->getChildren();
+	auto& children = obj->getChildren();
 	for (int i = 0; i < children.size(); i++) {
 		projectObject(children[i]);
 	}
@@ -211,7 +231,7 @@ Shader* Renderer::pickShader(MaterialType type) {
 void Renderer::renderObject(
 	Object* object,
 	Camera* camera,
-	std::vector<PointLight*> pointLights
+	const std::vector<PointLight*>& pointLights
 ) {
 	//判断是Mesh还是Object，如果是Mesh需要渲染
 	if (object->getType() == ObjectType::Mesh || object->getType() == ObjectType::InstancedMesh) {

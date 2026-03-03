@@ -185,12 +185,20 @@ Framebuffer::Framebuffer(unsigned int width, unsigned int height) {
 Framebuffer::~Framebuffer() {
 	if (mFBO) {
 		glDeleteFramebuffers(1, &mFBO);
+		mFBO = 0;
 	}
 	if (mColorAttachment != nullptr) {
 		delete mColorAttachment;
+		mColorAttachment = nullptr;
 	}
 
 	if (mDepthStencilAttachment != nullptr) {
 		delete mDepthStencilAttachment;
+		mDepthStencilAttachment = nullptr;
+	}
+
+	if (mDepthAttachment != nullptr) {
+		delete mDepthAttachment;
+		mDepthAttachment = nullptr;
 	}
 }

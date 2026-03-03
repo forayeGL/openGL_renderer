@@ -49,14 +49,7 @@
 
 #include "application/assimpInstanceLoader.h"
 
-#include "glframework/renderer/bloom.h"
-
-
-/*			 1 在PBR的Shader中，加入irradianceMap的使用；并且输出颜色实验；
-*			 2 在pbrMaterial中，加入irradianceIndirect纹理（CubeMap HDR纹理）；
-*			 3 构造场景，加入天空盒；
-*			 4 PBR光照当中加入间接光照
-*/			 
+#include "glframework/renderer/bloom.h"	 
 
 Renderer* renderer = nullptr;
 Bloom* bloom = nullptr;
@@ -267,6 +260,24 @@ int main() {
 
 		renderIMGUI();
 	}
+
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
+
+	delete renderer;
+	delete bloom;
+	delete sceneOff;
+	delete scene;
+	delete fboMulti;
+	delete fboResolve;
+	delete camera;
+	delete cameraControl;
+
+	for (auto* pl : pointLights) {
+		delete pl;
+	}
+	pointLights.clear();
 
 	glApp->destroy();
 

@@ -89,7 +89,7 @@ void Object::addChild(Object* obj) {
 	obj->mParent = this;
 }
 
-std::vector<Object*>  Object::getChildren() {
+const std::vector<Object*>& Object::getChildren() const {
 	return mChildren;
 }
 
