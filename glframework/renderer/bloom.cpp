@@ -1,4 +1,5 @@
 #include "bloom.h"
+#include "../shader_manager.h"
 
 Bloom::Bloom(int width, int height, int minResolution) {
 	mWidth = width;
@@ -26,9 +27,10 @@ Bloom::Bloom(int width, int height, int minResolution) {
 	mQuad = Geometry::createScreenPlane();
 	mOriginFbo = Framebuffer::createHDRBloomFbo(mWidth, mHeight);
 
-	mExtractBrightShader = new Shader("assets/shaders/advanced/bloom/extractBright.vert", "assets/shaders/advanced/bloom/extractBright.frag");
-	mUpSampleShader = new Shader("assets/shaders/advanced/bloom/upSample.vert", "assets/shaders/advanced/bloom/upSample.frag");
-	mMergeShader = new Shader("assets/shaders/advanced/bloom/merge.vert", "assets/shaders/advanced/bloom/merge.frag");
+	auto& sm = ShaderManager::getInstance();
+	mExtractBrightShader = sm.getOrCreate("assets/shaders/advanced/bloom/extractBright.vert", "assets/shaders/advanced/bloom/extractBright.frag");
+	mUpSampleShader = sm.getOrCreate("assets/shaders/advanced/bloom/upSample.vert", "assets/shaders/advanced/bloom/upSample.frag");
+	mMergeShader = sm.getOrCreate("assets/shaders/advanced/bloom/merge.vert", "assets/shaders/advanced/bloom/merge.frag");
 }
 
 Bloom::~Bloom() {

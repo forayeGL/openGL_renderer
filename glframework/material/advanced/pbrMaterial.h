@@ -7,6 +7,15 @@ public:
 	PbrMaterial();
 	~PbrMaterial();
 
+	const char* getVertexShaderPath() const override;
+	const char* getFragmentShaderPath() const override;
+	void applyUniforms(
+		Shader* shader,
+		Mesh* mesh,
+		Camera* camera,
+		const std::vector<PointLight*>& pointLights
+	) override;
+
 public:
 	Texture* mAlbedo{ nullptr };	//双线性插值
 	Texture* mRoughness{ nullptr };	//最临近插值

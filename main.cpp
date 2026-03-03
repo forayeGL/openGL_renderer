@@ -34,7 +34,7 @@
 
 #include "glframework/mesh/mesh.h"
 #include "glframework/mesh/instancedMesh.h"
-#include "glframework/renderer/renderer.h"
+#include "glframework/renderer/render_pipeline.h"
 #include "glframework/light/pointLight.h"
 #include "glframework/light/spotLight.h"
 
@@ -49,15 +49,12 @@
 
 #include "application/assimpInstanceLoader.h"
 
-#include "glframework/renderer/bloom.h"	 
+#include "glframework/renderer/bloom.h"
 
-Renderer* renderer = nullptr;
-Bloom* bloom = nullptr;
+RenderPipeline* pipeline = nullptr;
 
 Scene* sceneOff = nullptr;
 Scene* scene = nullptr;
-Framebuffer* fboMulti = nullptr;
-Framebuffer* fboResolve = nullptr;
 
 ScreenMaterial* screenMat = nullptr;
 PbrMaterial* material = nullptr;
@@ -103,11 +100,7 @@ void OnScroll(double offset) {
 
 
 void prepare() {
-	fboMulti = Framebuffer::createMultiSampleHDRFbo(WIDTH, HEIGHT);
-	fboResolve = Framebuffer::createHDRFbo(WIDTH, HEIGHT);
-
-	renderer = new Renderer();
-	bloom = new Bloom(WIDTH, HEIGHT);
+	pipeline = new RenderPipeline(WIDTH, HEIGHT);
 	sceneOff = new Scene();
 	scene = new Scene();
 
@@ -146,7 +139,7 @@ void prepare() {
 	//pass 02 postProcessPass:后处理pass
 	auto sgeo = Geometry::createScreenPlane();
 	screenMat = new ScreenMaterial();
-	screenMat->mScreenTexture = fboResolve->mColorAttachment;
+	screenMat->mScreenTexture = pipeline->getResolveColorAttachment();
 	auto smesh = new Mesh(sgeo, screenMat);
 	scene->addChild(smesh);
 
@@ -209,6 +202,7 @@ void renderIMGUI() {
 	//2 决定当前的GUI上面有哪些控件，从上到下
 	ImGui::Begin("MaterialEditor");
 	ImGui::SliderFloat("exposure:", &screenMat->mExposure, 0.0f, 10.0f);
+	auto* bloom = pipeline->getBloom();
 	ImGui::SliderFloat("Threshold:", &bloom->mThreshold, 0.0f, 100.0f);
 	ImGui::SliderFloat("BloomAttenuation:", &bloom->mBloomAttenuation, 0.0f, 1.0f);
 	ImGui::SliderFloat("BloomIntensity:", &bloom->mBloomIntensity, 0.0f, 1.0f);
@@ -252,11 +246,8 @@ int main() {
 	while (glApp->update()) {
 		cameraControl->update();
 
-		renderer->setClearColor(clearColor);
-		renderer->render(sceneOff, camera, pointLights,fboMulti->mFBO);
-		renderer->msaaResolve(fboMulti, fboResolve);
-		bloom->doBloom(fboResolve);
-		renderer->render(scene, camera, pointLights);
+		pipeline->setClearColor(clearColor);
+		pipeline->execute(sceneOff, scene, camera, pointLights);
 
 		renderIMGUI();
 	}
@@ -265,12 +256,9 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 
-	delete renderer;
-	delete bloom;
+	delete pipeline;
 	delete sceneOff;
 	delete scene;
-	delete fboMulti;
-	delete fboResolve;
 	delete camera;
 	delete cameraControl;
 

@@ -2,7 +2,8 @@
 #include "../core.h"
 #include "../framebuffer/framebuffer.h"
 #include "../geometry.h"
-#include "../shader.h"
+
+class Shader;
 
 class Bloom {
 public:
@@ -22,7 +23,7 @@ private:
 	std::vector<Framebuffer*> mUpSamples{};
 	int mWidth{ 0 };
 	int mHeight{ 0 };
-	int mMipLevels{ 0 };//下采样图片数量
+	int mMipLevels{ 0 };
 
 	Geometry* mQuad{ nullptr };
 	Framebuffer* mOriginFbo{ nullptr };
