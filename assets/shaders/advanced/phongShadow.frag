@@ -7,194 +7,192 @@ in vec3 worldPosition;
 in vec4 lightSpaceClipCoord;
 in vec3 lightSpacePosition;
 
-uniform sampler2D sampler;	//diffuse贴图采样器
-uniform sampler2D specularMaskSampler;//specularMask贴图采样器
+// UBOs must come before any usage of their defines
+#include "../common/lightUBO.glsl"
+#include "../common/shadowUBO.glsl"
+#include "../common/renderSettings.glsl"
 
+uniform sampler2D sampler;
+uniform sampler2D specularMaskSampler;
 uniform sampler2D shadowMapSampler;
-uniform float bias;
+uniform samplerCube pointShadowMaps[MAX_POINT_SHADOW];
 
-uniform vec3 ambientColor;
+uniform float shiness;
 
-//相机世界位置
-uniform vec3 cameraPosition;
+// ===== Convenience accessors for packed UBO fields =====
 
+float getShadowBias()        { return shadowParams1.x; }
+float getShadowPcfRadius()   { return shadowParams1.y; }
+float getShadowDiskTight()   { return shadowParams1.z; }
+float getShadowLightSize()   { return shadowParams1.w; }
+float getShadowNearPlane()   { return shadowParams2.x; }
+float getShadowFrustum()     { return shadowParams2.y; }
+int   getHasDirShadow()      { return shadowFlags.x; }
+int   getNumPointShadows()   { return shadowFlags.y; }
 
-//透明度
-uniform float opacity;
+float getPointShadowFar(int i) {
+	if (i < 4) return pointShadowFar01[i];
+	return pointShadowFar23[i - 4];
+}
 
-#include "../common/lightStruct.glsl"
-#include "../common/phongLightFunc.glsl"
+// ===== Phong lighting =====
 
-uniform DirectionalLight directionalLight;
+vec3 calcDiffuse(vec3 lightColor, vec3 objColor, vec3 lightDir, vec3 N) {
+	float diff = clamp(dot(-lightDir, N), 0.0, 1.0);
+	return lightColor * diff * objColor;
+}
+
+vec3 calcSpecular(vec3 lightColor, vec3 lightDir, vec3 N, vec3 V, float specIntensity) {
+	float flag = step(0.0, dot(-lightDir, N));
+	vec3 R = normalize(reflect(lightDir, N));
+	float spec = pow(max(dot(R, -V), 0.0), shiness);
+	return lightColor * spec * flag * specIntensity;
+}
+
+vec3 calcDirectionalLight(vec3 objColor, vec3 N, vec3 V) {
+	vec3 dir = normalize(dirLight.direction.xyz);
+	vec3 col = dirLight.color.xyz * dirLight.color.w; // color * intensity
+	float specI = dirLight.specularPad.x;
+	return calcDiffuse(col, objColor, dir, N) + calcSpecular(col, dir, N, V, specI);
+}
+
+vec3 calcPointLight(GPUPointLight pl, vec3 objColor, vec3 N, vec3 V) {
+	vec3 lightDir = normalize(worldPosition - pl.position.xyz);
+	float dist = length(worldPosition - pl.position.xyz);
+	float specI = pl.attenuation.x;
+	float k2 = pl.attenuation.y;
+	float k1 = pl.attenuation.z;
+	float kc = pl.attenuation.w;
+	float atten = 1.0 / (k2 * dist * dist + k1 * dist + kc);
+	return (calcDiffuse(pl.color.xyz, objColor, lightDir, N)
+	      + calcSpecular(pl.color.xyz, lightDir, N, V, specI)) * atten;
+}
+
+// ===== Shadow sampling =====
 
 #define NUM_SAMPLES 32
-#define PI 3.141592653589793
+#define PI  3.141592653589793
 #define PI2 6.283185307179586
 
-float rand_2to1(vec2 uv ) { 
-  // 0 - 1
+float rand_2to1(vec2 seed) {
 	const highp float a = 12.9898, b = 78.233, c = 43758.5453;
-	highp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );
+	highp float dt = dot(seed, vec2(a, b));
+	highp float sn = mod(dt, PI);
 	return fract(sin(sn) * c);
 }
 
-uniform float diskTightness;
-vec2 disk[NUM_SAMPLES];
-void poissonDiskSamples(vec2 randomSeed){
-	//1 初始弧度
-	float angle = rand_2to1(randomSeed) * PI2;
-
-	//2 初始半径
+vec2 disk2D[NUM_SAMPLES];
+void poissonDiskSamples2D(vec2 seed) {
+	float angle = rand_2to1(seed) * PI2;
 	float radius = 1.0 / float(NUM_SAMPLES);
-
-	//3 弧度步长
 	float angleStep = 3.883222077450933;
-
-	//4 半径步长
 	float radiusStep = radius;
-
-	//5 循环生成
-	for(int i = 0;i < NUM_SAMPLES;i++){
-		disk[i] = vec2(cos(angle), sin(angle)) * pow(radius, diskTightness);
+	for (int i = 0; i < NUM_SAMPLES; i++) {
+		disk2D[i] = vec2(cos(angle), sin(angle)) * pow(radius, getShadowDiskTight());
 		radius += radiusStep;
 		angle += angleStep;
 	}
 }
 
-
-
-float getBias(vec3 normal, vec3 lightDir){
-	vec3 normalN = normalize(normal);
-	vec3 lightDirN = normalize(lightDir);
-	
-	return max(bias * (1.0 - dot(normalN, lightDirN)), 0.0005);
+vec3 disk3D[NUM_SAMPLES];
+void poissonDiskSamples3D(vec2 seed) {
+	float angleTheta = rand_2to1(seed) * PI2;
+	float angleFi = rand_2to1(seed + vec2(0.5, 0.5)) * PI2;
+	float radius = 1.0 / float(NUM_SAMPLES);
+	float angleStep = 3.883222077450933;
+	float radiusStep = radius;
+	for (int i = 0; i < NUM_SAMPLES; i++) {
+		disk3D[i] = vec3(sin(angleTheta)*cos(angleFi), cos(angleTheta), sin(angleTheta)*sin(angleFi))
+		            * pow(radius, getShadowDiskTight());
+		radius += radiusStep;
+		angleTheta += angleStep;
+		angleFi += angleStep;
+	}
 }
 
-float calculateShadow(vec3 normal, vec3 lightDir){
-	//1 找到当前像素在光源空间内的NDC坐标
-	vec3 lightNDC = lightSpaceClipCoord.xyz/lightSpaceClipCoord.w;
-
-	//2 找到当前像素在ShadowMap上的uv
-	vec3 projCoord = lightNDC * 0.5 + 0.5;
-	vec2 uv = projCoord.xy;
-
-	//3 使用这个uv对ShadowMap进行采样，得到ClosestDepth
-	float closestDepth = texture(shadowMapSampler, uv).r;
-
-	//4 对比当前像素在光源空间内的深度值与ClosestDepth的大小
-	float selfDepth = projCoord.z;
-
-	float shadow = (selfDepth - getBias(normal, lightDir)) > closestDepth? 1.0:0.0;
-
-	return shadow;
+float getDirBias(vec3 N, vec3 lightDir) {
+	return max(getShadowBias() * (1.0 - dot(normalize(N), normalize(lightDir))), 0.0005);
 }
 
-//float pcf(vec3 normal, vec3 lightDir){
-//	//1 找到当前像素在光源空间内的NDC坐标
-//	vec3 lightNDC = lightSpaceClipCoord.xyz/lightSpaceClipCoord.w;
-//
-//	//2 找到当前像素在ShadowMap上的uv
-//	vec3 projCoord = lightNDC * 0.5 + 0.5;
-//	vec2 uv = projCoord.xy;
-//	float depth = projCoord.z;
-//
-//	vec2 texelSize = 1.0 / textureSize(shadowMapSampler, 0);
-//
-//	//3  遍历九宫格，每一个的深度值都需要与当前像素在光源下的深度值进行对比
-//	float sum = 0.0;
-//	for(int x = -1;x <= 1;x++){
-//		for(int y = -1;y <= 1;y++){
-//			float closestDepth = texture(shadowMapSampler,uv + vec2(x,y) * texelSize).r;
-//			sum += closestDepth < (depth - getBias(normal, lightDir))?1.0:0.0;
-//		}
-//	}
-//	return sum / 9.0;
-//}
-
-uniform float pcfRadius;
-float pcf(vec3 normal, vec3 lightDir,float pcfUVRadius){
-	//1 找到当前像素在光源空间内的NDC坐标
-	vec3 lightNDC = lightSpaceClipCoord.xyz/lightSpaceClipCoord.w;
-
-	//2 找到当前像素在ShadowMap上的uv
+float pcfDirectional(vec3 N, vec3 lightDir) {
+	vec3 lightNDC = lightSpaceClipCoord.xyz / lightSpaceClipCoord.w;
 	vec3 projCoord = lightNDC * 0.5 + 0.5;
-	vec2 uv = projCoord.xy;
+	vec2 shadowUV = projCoord.xy;
 	float depth = projCoord.z;
 
-	poissonDiskSamples(uv);
+	if (depth > 1.0) return 0.0;
 
-	vec2 texelSize = 1.0 / textureSize(shadowMapSampler, 0);
+	poissonDiskSamples2D(shadowUV);
 
-	//3  遍历poisson采样盘的每一个采样点，每一个的深度值都需要与当前像素在光源下的深度值进行对比
+	float biasVal = getDirBias(N, lightDir);
+	float pcfR = getShadowPcfRadius();
 	float sum = 0.0;
-	for(int i = 0;i < NUM_SAMPLES;i++){
-		float closestDepth = texture(shadowMapSampler,uv + disk[i] * pcfUVRadius).r;
-		sum += closestDepth < (depth - getBias(normal, lightDir))?1.0:0.0;
+	for (int i = 0; i < NUM_SAMPLES; i++) {
+		float closest = texture(shadowMapSampler, shadowUV + disk2D[i] * pcfR).r;
+		sum += (depth - biasVal) > closest ? 1.0 : 0.0;
 	}
-
 	return sum / float(NUM_SAMPLES);
 }
 
-//PCSS 相关参数 
-uniform float lightSize;
-uniform float frustum;
-uniform float nearPlane;
+float pcfPoint(int lightIdx, vec3 lightPos, vec3 N) {
+	vec3 lightDis = worldPosition - lightPos;
+	vec3 uvw = normalize(lightDis);
+	float farVal = getPointShadowFar(lightIdx);
+	float depth = length(lightDis) / (1.414 * farVal);
 
-float findBlocker(vec3 lightSpacePosition, vec2 shadowUV, float depthReceiver, vec3 normal,vec3 lightDir){
-	poissonDiskSamples(shadowUV);
-	
-	float searchRadius = (-lightSpacePosition.z - nearPlane) / (-lightSpacePosition.z)*lightSize;
-	float searchRadiusUV = searchRadius / frustum;
+	poissonDiskSamples3D(uvw.xy);
 
-	float blockerNum = 0.0;
-	float blockerSumDepth = 0.0;
-	for(int i = 0;i < NUM_SAMPLES;i++){
-		float sampleDepth = texture(shadowMapSampler, shadowUV + disk[i] * searchRadiusUV).r;
-		if(depthReceiver - getBias(normal, lightDir) > sampleDepth){
-			blockerNum += 1.0;
-			blockerSumDepth += sampleDepth;
-		}
+	vec3 lightDir = normalize(lightDis);
+	float biasVal = getDirBias(N, -lightDir);
+
+	float pcfR = getShadowPcfRadius();
+	float sum = 0.0;
+	for (int i = 0; i < NUM_SAMPLES; i++) {
+		float closest = texture(pointShadowMaps[lightIdx], uvw + disk3D[i] * pcfR).r;
+		sum += (depth - biasVal) > closest ? 1.0 : 0.0;
 	}
-
-	return blockerNum != 0.0?blockerSumDepth / blockerNum:-1.0;
-}
-
-float pcss(vec3 lightSpacePosition, vec4 lightSpaceClipCoord, vec3 normal, vec3 lightDir) {
-	//1 获取当前像素在ShadowMap下的uv以及在光源坐标系下的深度值
-	vec3 lightNDC = lightSpaceClipCoord.xyz/lightSpaceClipCoord.w;
-	vec3 projCoord = lightNDC * 0.5 + 0.5;
-	vec2 uv = projCoord.xy;
-	float depth = projCoord.z;
-
-	//2 计算dBlocker
-	float dBlocker = findBlocker(lightSpacePosition, uv, depth, normal ,lightDir);
-	
-	//3 计算penumbra
-	float penumbra = ((depth - dBlocker) / dBlocker) * (lightSize / frustum);
-
-	//4 计算出来真正的pcfRadius
-	return pcf(normal, lightDir, penumbra * pcfRadius);
+	return sum / float(NUM_SAMPLES);
 }
 
 void main()
 {
-//环境光计算
-	vec3 objectColor  = texture(sampler, uv).xyz ;
-	vec3 result = vec3(0.0,0.0,0.0);
+	vec3 objectColor = texture(sampler, uv).xyz;
+	float alpha = texture(sampler, uv).a;
+	vec3 N = normalize(normal);
+	vec3 V = normalize(worldPosition - uCameraPosition.xyz);
 
-	//计算光照的通用数据
-	vec3 normalN = normalize(normal);
-	vec3 viewDir = normalize(worldPosition - cameraPosition);
+	// Shadow-only mode: just show shadow factor
+	if (renderMode == 2) {
+		float shadow = 0.0;
+		if (getHasDirShadow() == 1) {
+			shadow = pcfDirectional(N, dirLight.direction.xyz);
+		}
+		FragColor = vec4(vec3(1.0 - shadow), 1.0);
+		return;
+	}
 
-	result += calculateDirectionalLight(objectColor, directionalLight,normalN, viewDir);
+	// Directional light contribution
+	vec3 result = calcDirectionalLight(objectColor, N, V);
+	float dirShadow = 0.0;
+	if (getHasDirShadow() == 1) {
+		dirShadow = pcfDirectional(N, dirLight.direction.xyz);
+	}
+	result *= (1.0 - dirShadow);
 
-	
-	float alpha =  texture(sampler, uv).a;
+	// Point lights contribution
+	int nPL = numPointLights;
+	for (int i = 0; i < nPL && i < MAX_POINT_LIGHTS; i++) {
+		vec3 plResult = calcPointLight(pointLights[i], objectColor, N, V);
+		float plShadow = 0.0;
+		if (i < getNumPointShadows()) {
+			plShadow = pcfPoint(i, pointLights[i].position.xyz, N);
+		}
+		result += plResult * (1.0 - plShadow);
+	}
 
-	vec3 ambientColor = objectColor * ambientColor;
+	// Ambient
+	vec3 ambient = objectColor * ambientColor.xyz;
+	vec3 finalColor = result + ambient;
 
-	float shadow = pcss(lightSpacePosition, lightSpaceClipCoord, normal, -directionalLight.direction);
-	vec3 finalColor = result * (1.0 - shadow) + ambientColor;
-
-	FragColor = vec4(finalColor,alpha * opacity);
+	FragColor = vec4(finalColor, alpha * uOpacity);
 }

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.12)
 add_definitions (-DDEBUG)
 
 #本工程的名字
-project(OpenGL_Lecture)
+project(OpenGLRenderer)
 
 #本工程支持的C++版本
 set(CMAKE_CXX_STANDARD 17)
@@ -29,6 +29,6 @@ add_subdirectory(glframework)
 add_subdirectory(imgui)
 
 #本工程所有cpp文件编译链接，生成exe
-add_executable(openglStudy "main.cpp" "glad.c" )
+add_executable(openglRenderer "main.cpp" "glad.c" )
 
-target_link_libraries(openglStudy glfw3.lib  assimp-vc143-mtd.lib zlibstaticd.lib   wrapper app fw imguilib)
+target_link_libraries(openglRenderer glfw3.lib  assimp-vc143-mtd.lib zlibstaticd.lib   wrapper app fw imguilib)

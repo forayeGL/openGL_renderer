@@ -1,0 +1,144 @@
+#include "ubo_manager.h"
+#include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/pointLightShadow.h"
+#include "../../application/camera/orthographicCamera.h"
+#include <cstring>
+#include <algorithm>
+
+UBOManager::UBOManager() {
+}
+
+UBOManager::~UBOManager() {
+	if (mLightUBO)    glDeleteBuffers(1, &mLightUBO);
+	if (mShadowUBO)   glDeleteBuffers(1, &mShadowUBO);
+	if (mSettingsUBO) glDeleteBuffers(1, &mSettingsUBO);
+}
+
+void UBOManager::init() {
+	glGenBuffers(1, &mLightUBO);
+	glBindBuffer(GL_UNIFORM_BUFFER, mLightUBO);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(LightUBOData), nullptr, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_LIGHTS, mLightUBO);
+
+	glGenBuffers(1, &mShadowUBO);
+	glBindBuffer(GL_UNIFORM_BUFFER, mShadowUBO);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(ShadowUBOData), nullptr, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_SHADOW, mShadowUBO);
+
+	glGenBuffers(1, &mSettingsUBO);
+	glBindBuffer(GL_UNIFORM_BUFFER, mSettingsUBO);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(RenderSettingsUBOData), nullptr, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_RENDER_SETTINGS, mSettingsUBO);
+
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void UBOManager::updateLights(
+	DirectionalLight* dirLight,
+	const std::vector<PointLight*>& pointLights
+) {
+	std::memset(&mLightData, 0, sizeof(mLightData));
+
+	if (dirLight) {
+		mLightData.dirLight.direction = glm::vec4(dirLight->getDirection(), 0.0f);
+		mLightData.dirLight.color = glm::vec4(dirLight->mColor, dirLight->mIntensity);
+		mLightData.dirLight.specularPad = glm::vec4(dirLight->mSpecularIntensity, 0.0f, 0.0f, 0.0f);
+	}
+
+	int count = std::min((int)pointLights.size(), MAX_POINT_LIGHTS);
+	mLightData.counts = glm::ivec4(count, 0, 0, 0);
+
+	for (int i = 0; i < count; i++) {
+		auto* pl = pointLights[i];
+		mLightData.pointLights[i].position = glm::vec4(pl->getPosition(), 0.0f);
+		mLightData.pointLights[i].color = glm::vec4(pl->mColor, 0.0f);
+		mLightData.pointLights[i].attenuation = glm::vec4(
+			pl->mSpecularIntensity, pl->mK2, pl->mK1, pl->mKc
+		);
+	}
+
+	glBindBuffer(GL_UNIFORM_BUFFER, mLightUBO);
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(LightUBOData), &mLightData);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void UBOManager::updateShadow(
+	DirectionalLight* dirLight,
+	const std::vector<PointLight*>& pointLights
+) {
+	std::memset(&mShadowData, 0, sizeof(mShadowData));
+
+	if (dirLight && dirLight->mShadow) {
+		auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
+		mShadowData.lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
+		mShadowData.lightViewMatrix = glm::inverse(dirLight->getModelMatrix());
+		mShadowData.params1 = glm::vec4(
+			shadow->mBias, shadow->mPcfRadius,
+			shadow->mDiskTightness, shadow->mLightSize
+		);
+
+		float nearPlane = 0.0f;
+		float frustum = 100.0f;
+		if (shadow->mCamera) {
+			nearPlane = shadow->mCamera->mNear;
+			auto* ortho = dynamic_cast<OrthographicCamera*>(shadow->mCamera);
+			if (ortho) {
+				frustum = ortho->mR - ortho->mL;
+			}
+		}
+		mShadowData.params2 = glm::vec4(nearPlane, frustum, 0.0f, 0.0f);
+		mShadowData.flags.x = 1; // hasDirShadow
+	}
+
+	int count = std::min((int)pointLights.size(), MAX_POINT_SHADOW);
+	mShadowData.flags.y = count; // numPointShadows
+
+	// Pack far values into two vec4s (4 floats each)
+	for (int i = 0; i < count && i < 4; i++) {
+		if (pointLights[i]->mShadow && pointLights[i]->mShadow->mCamera) {
+			mShadowData.pointShadowFar01[i] = pointLights[i]->mShadow->mCamera->mFar;
+		}
+	}
+	for (int i = 4; i < count && i < 8; i++) {
+		if (pointLights[i]->mShadow && pointLights[i]->mShadow->mCamera) {
+			mShadowData.pointShadowFar23[i - 4] = pointLights[i]->mShadow->mCamera->mFar;
+		}
+	}
+
+	glBindBuffer(GL_UNIFORM_BUFFER, mShadowUBO);
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ShadowUBOData), &mShadowData);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void UBOManager::updateRenderSettings(
+	Camera* camera,
+	RenderMode mode,
+	glm::vec3 ambientColor
+) {
+	mSettingsData.ambientColor = glm::vec4(ambientColor, 0.0f);
+	mSettingsData.cameraPosition = glm::vec4(camera->mPosition, 0.0f);
+	mSettingsData.renderParams = glm::vec4(1.0f, static_cast<float>(static_cast<int>(mode)), 0.0f, 0.0f);
+
+	glBindBuffer(GL_UNIFORM_BUFFER, mSettingsUBO);
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(RenderSettingsUBOData), &mSettingsData);
+	glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void UBOManager::bindToShader(GLuint program) {
+	GLuint blockIdx;
+
+	blockIdx = glGetUniformBlockIndex(program, "LightBlock");
+	if (blockIdx != GL_INVALID_INDEX) {
+		glUniformBlockBinding(program, blockIdx, BINDING_LIGHTS);
+	}
+
+	blockIdx = glGetUniformBlockIndex(program, "ShadowBlock");
+	if (blockIdx != GL_INVALID_INDEX) {
+		glUniformBlockBinding(program, blockIdx, BINDING_SHADOW);
+	}
+
+	blockIdx = glGetUniformBlockIndex(program, "RenderSettingsBlock");
+	if (blockIdx != GL_INVALID_INDEX) {
+		glUniformBlockBinding(program, blockIdx, BINDING_RENDER_SETTINGS);
+	}
+}

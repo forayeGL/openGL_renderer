@@ -1,5 +1,11 @@
 #pragma once
 #include "../core.h"
+#include <vector>
+
+class Shader;
+class Mesh;
+class Camera;
+class PointLight;
 
 //使用C++的枚举类型
 enum class MaterialType {
@@ -24,7 +30,17 @@ enum class MaterialType {
 class Material {
 public:
 	Material();
-	~Material();
+	virtual ~Material();
+
+	virtual const char* getVertexShaderPath() const = 0;
+	virtual const char* getFragmentShaderPath() const = 0;
+
+	virtual void applyUniforms(
+		Shader* shader,
+		Mesh* mesh,
+		Camera* camera,
+		const std::vector<PointLight*>& pointLights
+	) = 0;
 
 public:
 	MaterialType mType;

@@ -1,76 +1,21 @@
 #include "renderer.h"
 #include <iostream>
-#include "../material/phongMaterial.h"
-#include "../material/whiteMaterial.h"
-#include "../material/opacityMaskMaterial.h"
-#include "../material/screenMaterial.h"
-#include "../material/cubeMaterial.h"
-#include "../material/phongEnvMaterial.h"
-#include "../material/phongInstanceMaterial.h"
-#include "../material/grassInstanceMaterial.h"
-#include "../material/advanced/phongNormalMaterial.h"
-#include "../material/advanced/phongParallaxMaterial.h"
-#include "../material/advanced/phongShadowMaterial.h"
-#include "../material/advanced/phongCSMShadowMaterial.h"
-#include "../material/advanced/phongPointShadowMaterial.h"
-#include "../material/advanced/pbrMaterial.h"
 
 #include "../mesh/instancedMesh.h"
 #include "../../application/camera/orthographicCamera.h"
-
+#include "../shader_manager.h"
 #include "../light/shadow/directionalLightShadow.h"
-#include "../light/shadow/directionalLightCSMShadow.h"
 #include "../light/shadow/pointLightShadow.h"
-#include <string>//stl string
+
+#include <string>
 #include <algorithm>
 
 
 Renderer::Renderer() {
-	//mPhongShader = new Shader("assets/shaders/phong.vert", "assets/shaders/phong.frag");
-	mWhiteShader = new Shader("assets/shaders/white.vert", "assets/shaders/white.frag");
-	mDepthShader = new Shader("assets/shaders/depth.vert", "assets/shaders/depth.frag");
-	mOpacityMaskShader = new Shader("assets/shaders/phongOpacityMask.vert", "assets/shaders/phongOpacityMask.frag");
-	mScreenShader = new Shader("assets/shaders/screen.vert", "assets/shaders/screen.frag");
-	mCubeShader = new Shader("assets/shaders/cube.vert", "assets/shaders/cube.frag");
-	mPhongEnvShader = new Shader("assets/shaders/phongEnv.vert", "assets/shaders/phongEnv.frag");
-	mPhongInstanceShader = new Shader("assets/shaders/phongInstance.vert", "assets/shaders/phongInstance.frag");
-	mGrassInstanceShader = new Shader("assets/shaders/grassInstance.vert", "assets/shaders/grassInstance.frag");
-
-	mPhongNormalShader = new Shader("assets/shaders/advanced/phongNormal.vert", "assets/shaders/advanced/phongNormal.frag");
-	mPhongParallaxShader = new Shader("assets/shaders/advanced/phongParallax.vert", "assets/shaders/advanced/phongParallax.frag");
-	mPhongShader = new Shader("assets/shaders/advanced/phong.vert", "assets/shaders/advanced/phong.frag");
-	mShadowShader = new Shader("assets/shaders/advanced/shadow.vert", "assets/shaders/advanced/shadow.frag");
-	mPhongShadowShader = new Shader("assets/shaders/advanced/phongShadow.vert", "assets/shaders/advanced/phongShadow.frag");
-	mPhongCSMShadowShader = new Shader("assets/shaders/advanced/phongCSMShadow.vert", "assets/shaders/advanced/phongCSMShadow.frag");
-
-	mShadowDistanceShader = new Shader("assets/shaders/advanced/shadowDistance.vert", "assets/shaders/advanced/shadowDistance.frag");
-	mPhongPointShadowShader = new Shader("assets/shaders/advanced/phongPointShadow.vert", "assets/shaders/advanced/phongPointShadow.frag");
-
-	mPbrShader = new Shader("assets/shaders/advanced/pbr/pbr.vert", "assets/shaders/advanced/pbr/pbr.frag");
+	mUBOManager.init();
 }
 
 Renderer::~Renderer() {
-	delete mPhongShader;
-	delete mWhiteShader;
-	delete mDepthShader;
-	delete mOpacityMaskShader;
-	delete mScreenShader;
-	delete mCubeShader;
-	delete mPhongEnvShader;
-	delete mPhongInstanceShader;
-	delete mGrassInstanceShader;
-
-	delete mPhongNormalShader;
-	delete mPhongParallaxShader;
-
-	delete mShadowShader;
-	delete mPhongShadowShader;
-	delete mPhongCSMShadowShader;
-
-	delete mShadowDistanceShader;
-	delete mPhongPointShadowShader;
-
-	delete mPbrShader;
 }
 
 void Renderer::setClearColor(glm::vec3 color) {
@@ -87,12 +32,12 @@ void Renderer::msaaResolve(Framebuffer* src, Framebuffer* dst) {
 void Renderer::render(
 	Scene* scene,
 	Camera* camera,
+	DirectionalLight* dirLight,
 	const std::vector<PointLight*>& pointLights,
 	unsigned int fbo
 ) {
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-	////1 设置当前帧绘制的时候，opengl的必要状态机参数
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
@@ -100,20 +45,14 @@ void Renderer::render(
 	glDisable(GL_POLYGON_OFFSET_FILL);
 	glDisable(GL_POLYGON_OFFSET_LINE);
 
-
-	//开启测试、设置基本写入状态，打开模板测试写入
 	glEnable(GL_STENCIL_TEST);
 	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-	glStencilMask(0xFF);//保证了模板缓冲可以被清理
+	glStencilMask(0xFF);
 
-	//默认颜色混合
 	glDisable(GL_BLEND);
 
-	//2 清理画布 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-
-	//清空两个队列
 	mOpacityObjects.clear();
 	mTransparentObjects.clear();
 
@@ -124,32 +63,73 @@ void Renderer::render(
 		mTransparentObjects.end(),
 		[camera](const Mesh* a, const Mesh* b) {
 			auto viewMatrix = camera->getViewMatrix();
-
-			//1 计算a的相机系的Z
-			auto modelMatrixA = a->getModelMatrix();
-			auto worldPositionA = modelMatrixA * glm::vec4(0.0, 0.0, 0.0, 1.0);
+			auto worldPositionA = a->getModelMatrix() * glm::vec4(0.0, 0.0, 0.0, 1.0);
 			auto cameraPositionA = viewMatrix * worldPositionA;
-
-			//2 计算b的相机系的Z
-			auto modelMatrixB = b->getModelMatrix();
-			auto worldPositionB = modelMatrixB * glm::vec4(0.0, 0.0, 0.0, 1.0);
+			auto worldPositionB = b->getModelMatrix() * glm::vec4(0.0, 0.0, 0.0, 1.0);
 			auto cameraPositionB = viewMatrix * worldPositionB;
-
 			return cameraPositionA.z < cameraPositionB.z;
 		}
 	);
 
-	//渲染Shadowmap
-	//renderShadowMap(camera, mOpacityObjects, pointLight);
+	// Save viewport before shadow passes
+	GLint savedViewport[4];
+	glGetIntegerv(GL_VIEWPORT, savedViewport);
 
-	//3 渲染两个队列
-	for (int i = 0; i < mOpacityObjects.size(); i++) {
-		renderObject(mOpacityObjects[i], camera, pointLights);
+	// Shadow map passes
+	if (dirLight && dirLight->mShadow) {
+		renderDirectionalShadow(dirLight, mOpacityObjects);
 	}
 
-	for (int i = 0; i < mTransparentObjects.size(); i++) {
-		renderObject(mTransparentObjects[i], camera, pointLights);
+	for (auto* pl : pointLights) {
+		if (pl->mShadow) {
+			renderPointShadow(pl, mOpacityObjects);
+		}
 	}
+
+	// Restore FBO and viewport
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+
+	// Update UBOs once per frame
+	mUBOManager.updateLights(dirLight, pointLights);
+	mUBOManager.updateShadow(dirLight, pointLights);
+	mUBOManager.updateRenderSettings(camera, mRenderMode, mAmbientColor);
+
+	// Apply render mode
+	if (mRenderMode == RenderMode::Wireframe) {
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	} else {
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	}
+
+	// Bind shadow textures globally
+	if (dirLight && dirLight->mShadow) {
+		auto* shadow = dirLight->mShadow;
+		if (shadow->mRenderTarget && shadow->mRenderTarget->mDepthAttachment) {
+			shadow->mRenderTarget->mDepthAttachment->setUnit(6);
+			shadow->mRenderTarget->mDepthAttachment->bind();
+		}
+	}
+
+	for (int i = 0; i < (int)pointLights.size() && i < MAX_POINT_SHADOW; i++) {
+		auto* pl = pointLights[i];
+		if (pl->mShadow && pl->mShadow->mRenderTarget && pl->mShadow->mRenderTarget->mDepthAttachment) {
+			int unit = 7 + i;
+			pl->mShadow->mRenderTarget->mDepthAttachment->setUnit(unit);
+			pl->mShadow->mRenderTarget->mDepthAttachment->bind();
+		}
+	}
+
+	for (int i = 0; i < (int)mOpacityObjects.size(); i++) {
+		renderObject(mOpacityObjects[i], camera, dirLight, pointLights);
+	}
+
+	for (int i = 0; i < (int)mTransparentObjects.size(); i++) {
+		renderObject(mTransparentObjects[i], camera, dirLight, pointLights);
+	}
+
+	// Reset polygon mode
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
 void Renderer::projectObject(Object* obj) {
@@ -170,75 +150,16 @@ void Renderer::projectObject(Object* obj) {
 	}
 }
 
-Shader* Renderer::pickShader(MaterialType type) {
-	Shader* result = nullptr;
-
-	switch (type) {
-	case MaterialType::PhongMaterial:
-		result = mPhongShader;
-		break;
-	case MaterialType::WhiteMaterial:
-		result = mWhiteShader;
-		break;
-	case MaterialType::DepthMaterial:
-		result = mDepthShader;
-		break;
-	case MaterialType::OpacityMaskMaterial:
-		result = mOpacityMaskShader;
-		break;
-	case MaterialType::ScreenMaterial:
-		result = mScreenShader;
-		break;
-	case MaterialType::CubeMaterial:
-		result = mCubeShader;
-		break;
-	case MaterialType::PhongEnvMaterial:
-		result = mPhongEnvShader;
-		break;
-	case MaterialType::PhongInstanceMaterial:
-		result = mPhongInstanceShader;
-		break;
-	case MaterialType::GrassInstanceMaterial:
-		result = mGrassInstanceShader;
-		break;
-	case MaterialType::PhongNormalMaterial:
-		result = mPhongNormalShader;
-		break;
-	case MaterialType::PhongParallaxMaterial:
-		result = mPhongParallaxShader;
-		break;
-	case MaterialType::PhongShadowMaterial:
-		result = mPhongShadowShader;
-		break;
-	case MaterialType::PhongCSMShadowMaterial:
-		result = mPhongCSMShadowShader;
-		break;
-	case MaterialType::PhongPointShadowMaterial:
-		result = mPhongPointShadowShader;
-		break;
-	case MaterialType::PbrMaterial:
-		result = mPbrShader;
-		break;
-	default:
-		std::cout << "Unknown material type to pick shader" << std::endl;
-		break;
-	}
-
-	return result;
-}
-
-//针对单个object进行渲染
 void Renderer::renderObject(
 	Object* object,
 	Camera* camera,
+	DirectionalLight* dirLight,
 	const std::vector<PointLight*>& pointLights
 ) {
-	//判断是Mesh还是Object，如果是Mesh需要渲染
 	if (object->getType() == ObjectType::Mesh || object->getType() == ObjectType::InstancedMesh) {
 		auto mesh = (Mesh*)object;
 		auto geometry = mesh->mGeometry;
 
-		//考察是否拥有全局材质
 		Material* material = nullptr;
 		if (mGlobalMaterial != nullptr) {
 			material = mGlobalMaterial;
@@ -247,98 +168,33 @@ void Renderer::renderObject(
 			material = mesh->mMaterial;
 		}
 
-		//设置渲染状态
 		setDepthState(material);
 		setPolygonOffsetState(material);
 		setStencilState(material);
 		setBlendState(material);
 		setFaceCullingState(material);
 
-		//1 决定使用哪个Shader 
-		Shader* shader = pickShader(material->mType);
+		Shader* shader = ShaderManager::getInstance().getOrCreate(
+			material->getVertexShaderPath(),
+			material->getFragmentShaderPath()
+		);
 
-		//2 更新shader的uniform
 		shader->begin();
 
-		switch (material->mType) {
-		case MaterialType::WhiteMaterial: {
-			//mvp
-			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-		}
-										break;
-		case MaterialType::ScreenMaterial: {
-			ScreenMaterial* screenMat = (ScreenMaterial*)material;
-			shader->setInt("screenTexSampler", 0);
+		// Bind UBOs to this shader program
+		mUBOManager.bindToShader(shader->getProgram());
 
-			//凑合了一下
-			shader->setFloat("texWidth", 1600);
-			shader->setFloat("texHeight", 1200);
+		// Per-object uniforms
+		material->applyUniforms(shader, mesh, camera, pointLights);
 
-			screenMat->mScreenTexture->bind();
-			shader->setFloat("exposure", screenMat->mExposure);
-		}
-										 break;
-		case MaterialType::PbrMaterial: {
-			PbrMaterial* pbrMat = (PbrMaterial*)material;
-		
-			//mvp以及基础参数
-			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-			auto normalMatrix = glm::mat3(glm::transpose(glm::inverse(mesh->getModelMatrix())));
-			shader->setMatrix3x3("normalMatrix", normalMatrix);
-			shader->setVector3("cameraPosition", camera->mPosition);
-
-			//pbr相关参数更新
-			shader->setInt("albedoTex", 0);
-			pbrMat->mAlbedo->setUnit(0);
-			pbrMat->mAlbedo->bind();
-
-			shader->setInt("normalTex", 1);
-			pbrMat->mNormal->setUnit(1);
-			pbrMat->mNormal->bind();
-
-			shader->setInt("roughnessTex", 2);
-			pbrMat->mRoughness->setUnit(2);
-			pbrMat->mRoughness->bind();
-
-			shader->setInt("metallicTex", 3);
-			pbrMat->mMetallic->setUnit(3);
-			pbrMat->mMetallic->bind();
-
-			shader->setInt("irradianceMap", 4);
-			pbrMat->mIrradianceIndirect->setUnit(4);
-			pbrMat->mIrradianceIndirect->bind();
-
-
-			for (int i = 0; i < pointLights.size(); i++) {
-				shader->setVector3("pointLights[" + std::to_string(i) + "].color", pointLights[i]->mColor);
-				shader->setVector3("pointLights[" + std::to_string(i) + "].position", pointLights[i]->getPosition());
-			}
-		}
-												   break;
-		case MaterialType::CubeMaterial: {
-			CubeMaterial* cubeMat = (CubeMaterial*)material;
-			mesh->setPosition(camera->mPosition);
-			//mvp
-			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-
-			shader->setInt("sphericalSampler", 0);
-			cubeMat->mDiffuse->bind();
-		}
-									   break;
-		default:
-			break;
+		// Shadow texture samplers
+		shader->setInt("shadowMapSampler", 6);
+		for (int i = 0; i < (int)pointLights.size() && i < MAX_POINT_SHADOW; i++) {
+			shader->setInt("pointShadowMaps[" + std::to_string(i) + "]", 7 + i);
 		}
 
-		//3 绑定vao
 		glBindVertexArray(geometry->getVao());
 
-		//4 执行绘制命令
 		if (object->getType() == ObjectType::InstancedMesh) {
 			InstancedMesh* im = (InstancedMesh*)mesh;
 			glDrawElementsInstanced(GL_TRIANGLES, geometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
@@ -411,170 +267,80 @@ void Renderer::setFaceCullingState(Material* material) {
 	}
 }
 
+void Renderer::renderDirectionalShadow(
+	DirectionalLight* dirLight,
+	const std::vector<Mesh*>& objects
+) {
+	auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
+	auto* fbo = shadow->mRenderTarget;
 
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+	glClear(GL_DEPTH_BUFFER_BIT);
 
-//
-//void Renderer::render(
-//	const std::vector<Mesh*>& meshes,
-//	Camera* camera,
-//	PointLight* pointLight,
-//	AmbientLight* ambLight
-//) {
-//	//1 设置当前帧绘制的时候，opengl的必要状态机参数
-//	glEnable(GL_DEPTH_TEST);
-//	glDepthFunc(GL_LESS);
-//
-//	//2 清理画布 
-//	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-//
-//	//3 遍历mesh进行绘制
-//	for (int i = 0; i < meshes.size(); i++) {
-//		auto mesh = meshes[i];
-//		auto geometry = mesh->mGeometry;
-//		auto material = mesh->mMaterial;
-//
-//		//1 决定使用哪个Shader 
-//		Shader* shader = pickShader(material->mType);
-//
-//		//2 更新shader的uniform
-//		shader->begin();
-//
-//		switch (material->mType) {
-//		case MaterialType::PhongMaterial: {
-//			PhongMaterial* phongMat = (PhongMaterial*)material;
-//
-//			//diffuse贴图帧更新
-//			//将纹理采样器与纹理单元进行挂钩
-//			shader->setInt("sampler", 0);
-//			//将纹理与纹理单元进行挂钩
-//			phongMat->mDiffuse->bind();
-//
-//			//高光蒙版的帧更新
-//			shader->setInt("specularMaskSampler", 1);
-//			phongMat->mSpecularMask->bind();
-//
-//			//mvp
-//			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-//			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-//			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-//
-//			auto normalMatrix = glm::mat3(glm::transpose(glm::inverse(mesh->getModelMatrix())));
-//			shader->setMatrix3x3("normalMatrix", normalMatrix);
-//
-//			//光源参数的uniform更新
-//			shader->setVector3("lightPosition", pointLight->getPosition());
-//			shader->setVector3("lightColor", pointLight->mColor);
-//			shader->setFloat("specularIntensity", pointLight->mSpecularIntensity);
-//			shader->setFloat("k2", pointLight->mK2);
-//			shader->setFloat("k1", pointLight->mK1);
-//			shader->setFloat("kc", pointLight->mKc);
-//
-//			shader->setFloat("shiness", phongMat->mShiness);
-//
-//			shader->setVector3("ambientColor", ambLight->mColor);
-//
-//			//相机信息更新
-//			shader->setVector3("cameraPosition", camera->mPosition);
-//
-//		}
-//										break;
-//		case MaterialType::WhiteMaterial: {
-//			//mvp
-//			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-//			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-//			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-//		}
-//										break;
-//		default:
-//			continue;
-//		}
-//
-//		//3 绑定vao
-//		glBindVertexArray(geometry->getVao());
-//
-//		//4 执行绘制命令
-//		glDrawElements(GL_TRIANGLES, geometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
-//	}
-//}
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
 
+	auto lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
 
+	Shader* shader = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/advanced/shadow.vert",
+		"assets/shaders/advanced/shadow.frag"
+	);
+	shader->begin();
+	shader->setMatrix4x4("lightMatrix", lightMatrix);
 
-//void Renderer::render(
-//	const std::vector<Mesh*>& meshes,
-//	Camera* camera,
-//	DirectionalLight* dirLight,
-//	AmbientLight* ambLight
-//) {
-//	//1 设置当前帧绘制的时候，opengl的必要状态机参数
-//	glEnable(GL_DEPTH_TEST);
-//	glDepthFunc(GL_LESS);
-//
-//	//2 清理画布 
-//	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-//
-//	//3 遍历mesh进行绘制
-//	for (int i = 0; i < meshes.size(); i++) {
-//		auto mesh = meshes[i];
-//		auto geometry = mesh->mGeometry;
-//		auto material = mesh->mMaterial;
-//
-//		//1 决定使用哪个Shader 
-//		Shader* shader = pickShader(material->mType);
-//
-//		//2 更新shader的uniform
-//		shader->begin();
-//
-//		switch (material->mType) {
-//		case MaterialType::PhongMaterial: {
-//			PhongMaterial* phongMat = (PhongMaterial*)material;
-//
-//			//diffuse贴图帧更新
-//			//将纹理采样器与纹理单元进行挂钩
-//			shader->setInt("sampler", 0);
-//			//将纹理与纹理单元进行挂钩
-//			phongMat->mDiffuse->bind();
-//
-//			//高光蒙版的帧更新
-//			shader->setInt("specularMaskSampler", 1);
-//			phongMat->mSpecularMask->bind();
-//
-//			//mvp
-//			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-//			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-//			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-//
-//			auto normalMatrix = glm::mat3(glm::transpose(glm::inverse(mesh->getModelMatrix())));
-//			shader->setMatrix3x3("normalMatrix", normalMatrix);
-//
-//			//光源参数的uniform更新
-//			shader->setVector3("lightDirection", dirLight->mDirection);
-//			shader->setVector3("lightColor", dirLight->mColor);
-//			shader->setFloat("specularIntensity", dirLight->mSpecularIntensity);
-//
-//			shader->setFloat("shiness", phongMat->mShiness);
-//
-//			shader->setVector3("ambientColor", ambLight->mColor);
-//
-//			//相机信息更新
-//			shader->setVector3("cameraPosition", camera->mPosition);
-//
-//		}
-//										break;
-//		case MaterialType::WhiteMaterial: {
-//			//mvp
-//			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
-//			shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
-//			shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
-//		}
-//										break;
-//		default:
-//			continue;
-//		}
-//
-//		//3 绑定vao
-//		glBindVertexArray(geometry->getVao());
-//
-//		//4 执行绘制命令
-//		glDrawElements(GL_TRIANGLES, geometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
-//	}
-//}
+	for (auto* mesh : objects) {
+		shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+		glBindVertexArray(mesh->mGeometry->getVao());
+		glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+	}
+}
+
+void Renderer::renderPointShadow(
+	PointLight* pointLight,
+	const std::vector<Mesh*>& objects
+) {
+	auto* shadow = static_cast<PointLightShadow*>(pointLight->mShadow);
+	auto* fbo = shadow->mRenderTarget;
+
+	auto lightMatrices = shadow->getLightMatrices(pointLight->getPosition());
+
+	Shader* shader = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/advanced/shadowDistance.vert",
+		"assets/shaders/advanced/shadowDistance.frag"
+	);
+
+	shader->begin();
+	shader->setFloat("far", shadow->mCamera->mFar);
+	shader->setVector3("lightPosition", pointLight->getPosition());
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	for (int face = 0; face < 6; face++) {
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER,
+			GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+			fbo->mDepthAttachment->getTexture(),
+			0
+		);
+		glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+		glClear(GL_DEPTH_BUFFER_BIT);
+
+		shader->setMatrix4x4("lightMatrix", lightMatrices[face]);
+
+		for (auto* mesh : objects) {
+			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+			glBindVertexArray(mesh->mGeometry->getVao());
+			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		}
+	}
+}
+
