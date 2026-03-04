@@ -12,14 +12,13 @@
 #include "../glframework/material/advanced/phongShadowMaterial.h"
 #include "../glframework/material/advanced/phongPointShadowMaterial.h"
 
-#include "../glframework/renderer/render_pipeline.h"
+#include "../glframework/renderer/default_render_pipeline.h"
 #include "../glframework/renderer/bloom.h"
 
 #include "camera/perspectiveCamera.h"
-
-#include "../imgui/imgui.h"
-#include "../imgui/imgui_impl_glfw.h"
-#include "../imgui/imgui_impl_opengl3.h"
+#include "gui/scene_panel.h"
+#include "gui/lighting_panel.h"
+#include "gui/rendering_panel.h"
 
 #include "../wrapper/checkError.h"
 
@@ -38,6 +37,10 @@ RendererApp::~RendererApp() {
 	}
 }
 
+void RendererApp::setPipeline(std::unique_ptr<IRenderPipeline> pipeline) {
+	mPipeline = std::move(pipeline);
+}
+
 bool RendererApp::init() {
 	if (!glApp->init(mWidth, mHeight)) {
 		return false;
@@ -54,7 +57,8 @@ bool RendererApp::init() {
 
 	prepareCamera();
 	prepareScene();
-	initImGui();
+	buildGuiPanels();
+	mGuiSystem.init(glApp->getWindow());
 
 	return true;
 }
@@ -63,19 +67,20 @@ void RendererApp::run() {
 	while (glApp->update()) {
 		mCameraControl->update();
 
-		mPipeline->setClearColor(mClearColor);
-		mPipeline->setRenderMode(static_cast<RenderMode>(mRenderModeIdx));
-		mPipeline->setAmbientColor(mAmbientColor);
-		mPipeline->execute(mMainScene.get(), mPostScene.get(), mCamera.get(), mDirLight, mPointLights);
+		// Fill RenderContext from current app state
+		mRenderCtx.mainScene   = mMainScene.get();
+		mRenderCtx.postScene   = mPostScene.get();
+		mRenderCtx.camera      = mCamera.get();
+		mRenderCtx.dirLight    = mDirLight;
+		mRenderCtx.pointLights = &mPointLights;
 
-		renderImGui();
+		mPipeline->execute(mRenderCtx);
+		mGuiSystem.render(glApp->getWindow());
 	}
 }
 
 void RendererApp::shutdown() {
-	ImGui_ImplOpenGL3_Shutdown();
-	ImGui_ImplGlfw_Shutdown();
-	ImGui::DestroyContext();
+	mGuiSystem.shutdown();
 
 	mPipeline.reset();
 	mMainScene.reset();
@@ -96,7 +101,12 @@ void RendererApp::shutdown() {
 }
 
 void RendererApp::prepareScene() {
-	mPipeline = std::make_unique<RenderPipeline>(mWidth, mHeight);
+	// Use injected pipeline if set, otherwise create the default one.
+	if (!mPipeline) {
+		auto defaultPipeline = std::make_unique<DefaultRenderPipeline>();
+		defaultPipeline->init(mWidth, mHeight);
+		mPipeline = std::move(defaultPipeline);
+	}
 	mMainScene = std::make_unique<Scene>();
 	mPostScene = std::make_unique<Scene>();
 
@@ -144,6 +154,11 @@ void RendererApp::prepareScene() {
 	auto smesh = new Mesh(sgeo, mScreenMat);
 	mPostScene->addChild(smesh);
 
+	// Populate RenderContext fields that don't change between frames
+	mRenderCtx.clearColor    = glm::vec3(0.0f);
+	mRenderCtx.ambientColor  = glm::vec3(0.15f);
+	mRenderCtx.renderModeIdx = 0;
+
 	// Directional light
 	mDirLight = new DirectionalLight();
 	mDirLight->setPosition(glm::vec3(10.0f, 20.0f, 10.0f));
@@ -184,143 +199,39 @@ void RendererApp::prepareCamera() {
 	mCameraControl->setSpeed(0.1f);
 }
 
-void RendererApp::initImGui() {
-	ImGui::CreateContext();
-	ImGui::StyleColorsDark();
+void RendererApp::buildGuiPanels() {
+	// Cast to DefaultRenderPipeline to access bloom / renderer.
+	// If a custom pipeline is used it should either expose those accessors
+	// or register its own panels before init() is called.
+	auto* dp = dynamic_cast<DefaultRenderPipeline*>(mPipeline.get());
 
-	ImGui_ImplGlfw_InitForOpenGL(glApp->getWindow(), true);
-	ImGui_ImplOpenGL3_Init("#version 460");
+	mGuiSystem.addPanel(std::make_unique<ScenePanel>(
+		mDynamicObjects,
+		mSelectedObject,
+		[this](const std::string& t) { addObject(t); },
+		[this]() { removeSelectedObject(); }
+	));
+
+	mGuiSystem.addPanel(std::make_unique<LightingPanel>(
+		mDirLight,
+		mPointLights,
+		[this]() { addPointLight(); },
+		[this](int i) { removePointLight(i); }
+	));
+
+	if (dp) {
+		mGuiSystem.addPanel(std::make_unique<RenderingPanel>(
+			mRenderCtx.renderModeIdx,
+			mRenderCtx.clearColor,
+			mRenderCtx.ambientColor,
+			mScreenMat,
+			dp->getBloom(),
+			mCameraControl.get()
+		));
+	}
 }
 
-void RendererApp::renderImGui() {
-	ImGui_ImplOpenGL3_NewFrame();
-	ImGui_ImplGlfw_NewFrame();
-	ImGui::NewFrame();
-
-	// ===== Scene Objects =====
-	ImGui::Begin("Scene");
-	ImGui::Text("Objects: %d", (int)mDynamicObjects.size());
-	if (ImGui::Button("Add Cube")) { addObject("cube"); }
-	ImGui::SameLine();
-	if (ImGui::Button("Add Sphere")) { addObject("sphere"); }
-
-	ImGui::Separator();
-	for (int i = 0; i < (int)mDynamicObjects.size(); i++) {
-		char label[64];
-		snprintf(label, sizeof(label), "Object %d", i);
-		if (ImGui::Selectable(label, mSelectedObject == i)) {
-			mSelectedObject = i;
-		}
-	}
-
-	if (mSelectedObject >= 0 && mSelectedObject < (int)mDynamicObjects.size()) {
-		ImGui::Separator();
-		ImGui::Text("Selected: Object %d", mSelectedObject);
-		auto* obj = mDynamicObjects[mSelectedObject];
-		glm::vec3 pos = obj->getPosition();
-		if (ImGui::DragFloat3("Position", &pos.x, 0.1f)) {
-			obj->setPosition(pos);
-		}
-		float angleX = 0.0f, angleY = 0.0f, angleZ = 0.0f;
-		if (ImGui::DragFloat("Rotate X", &angleX, 1.0f)) { obj->rotateX(angleX); }
-		if (ImGui::DragFloat("Rotate Y", &angleY, 1.0f)) { obj->rotateY(angleY); }
-		if (ImGui::DragFloat("Rotate Z", &angleZ, 1.0f)) { obj->rotateZ(angleZ); }
-
-		if (ImGui::Button("Remove Selected")) {
-			removeSelectedObject();
-		}
-	}
-	ImGui::End();
-
-	// ===== Lighting =====
-	ImGui::Begin("Lighting");
-	if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-		glm::vec3 dirPos = mDirLight->getPosition();
-		if (ImGui::DragFloat3("Dir Position", &dirPos.x, 0.1f)) {
-			mDirLight->setPosition(dirPos);
-		}
-		ImGui::ColorEdit3("Dir Color", &mDirLight->mColor.x);
-		ImGui::SliderFloat("Dir Intensity", &mDirLight->mIntensity, 0.0f, 10.0f);
-		ImGui::SliderFloat("Dir Specular", &mDirLight->mSpecularIntensity, 0.0f, 5.0f);
-
-		float dirAngleX = 0.0f, dirAngleY = 0.0f;
-		if (ImGui::DragFloat("Dir Angle X", &dirAngleX, 0.5f)) { mDirLight->rotateX(dirAngleX); }
-		if (ImGui::DragFloat("Dir Angle Y", &dirAngleY, 0.5f)) { mDirLight->rotateY(dirAngleY); }
-
-		if (mDirLight->mShadow) {
-			ImGui::SliderFloat("Shadow Bias", &mDirLight->mShadow->mBias, 0.0f, 0.01f, "%.5f");
-			ImGui::SliderFloat("PCF Radius", &mDirLight->mShadow->mPcfRadius, 0.0f, 0.1f);
-			ImGui::SliderFloat("Disk Tightness", &mDirLight->mShadow->mDiskTightness, 0.0f, 5.0f);
-			ImGui::SliderFloat("Light Size", &mDirLight->mShadow->mLightSize, 0.0f, 0.5f);
-		}
-	}
-
-	ImGui::Separator();
-	ImGui::Text("Point Lights: %d / %d", (int)mPointLights.size(), MAX_POINT_LIGHTS);
-	if ((int)mPointLights.size() < MAX_POINT_LIGHTS) {
-		if (ImGui::Button("Add Point Light")) { addPointLight(); }
-	}
-
-	for (int i = 0; i < (int)mPointLights.size(); i++) {
-		char header[64];
-		snprintf(header, sizeof(header), "Point Light %d", i);
-		if (ImGui::CollapsingHeader(header)) {
-			std::string id = std::to_string(i);
-			glm::vec3 plPos = mPointLights[i]->getPosition();
-			if (ImGui::DragFloat3(("PL Pos##" + id).c_str(), &plPos.x, 0.1f)) {
-				mPointLights[i]->setPosition(plPos);
-			}
-			ImGui::ColorEdit3(("PL Color##" + id).c_str(), &mPointLights[i]->mColor.x);
-			ImGui::SliderFloat(("PL K2##" + id).c_str(), &mPointLights[i]->mK2, 0.0f, 2.0f);
-			ImGui::SliderFloat(("PL K1##" + id).c_str(), &mPointLights[i]->mK1, 0.0f, 2.0f);
-			ImGui::SliderFloat(("PL Kc##" + id).c_str(), &mPointLights[i]->mKc, 0.0f, 2.0f);
-
-			if (mPointLights[i]->mShadow) {
-				ImGui::SliderFloat(("PL Shadow Bias##" + id).c_str(),
-					&mPointLights[i]->mShadow->mBias, 0.0f, 0.01f, "%.5f");
-			}
-
-			if (ImGui::Button(("Remove##pl" + id).c_str())) {
-				removePointLight(i);
-				break;
-			}
-		}
-	}
-	ImGui::End();
-
-	// ===== Rendering =====
-	ImGui::Begin("Rendering");
-
-	const char* modeNames[] = { "Fill", "Wireframe", "Shadow Only" };
-	ImGui::Combo("Render Mode", &mRenderModeIdx, modeNames, 3);
-
-	ImGui::SliderFloat("Exposure", &mScreenMat->mExposure, 0.0f, 10.0f);
-	ImGui::ColorEdit3("Clear Color", &mClearColor.x);
-	ImGui::ColorEdit3("Ambient Color", &mAmbientColor.x);
-
-	auto* bloom = mPipeline->getBloom();
-	if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::SliderFloat("Threshold", &bloom->mThreshold, 0.0f, 100.0f);
-		ImGui::SliderFloat("Attenuation", &bloom->mBloomAttenuation, 0.0f, 1.0f);
-		ImGui::SliderFloat("Intensity", &bloom->mBloomIntensity, 0.0f, 1.0f);
-		ImGui::SliderFloat("Radius", &bloom->mBloomRadius, 0.0f, 1.0f);
-	}
-
-	if (ImGui::CollapsingHeader("Camera")) {
-		float speed = mCameraControl->getSpeed();
-		if (ImGui::SliderFloat("Move Speed", &speed, 0.01f, 2.0f)) {
-			mCameraControl->setSpeed(speed);
-		}
-	}
-	ImGui::End();
-
-	ImGui::Render();
-	int display_w, display_h;
-	glfwGetFramebufferSize(glApp->getWindow(), &display_w, &display_h);
-	glViewport(0, 0, display_w, display_h);
-
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-}
+// renderImGui() has been removed; GuiSystem::render() takes its place.
 
 void RendererApp::addObject(const std::string& type) {
 	Mesh* mesh = nullptr;

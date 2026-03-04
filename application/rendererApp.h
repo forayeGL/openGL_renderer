@@ -7,12 +7,13 @@
 #include "../glframework/light/directionalLight.h"
 #include "../glframework/light/pointLight.h"
 #include "../glframework/mesh/mesh.h"
-#include "../glframework/renderer/ubo_manager.h"
+#include "../glframework/renderer/i_render_pipeline.h"
+#include "../glframework/renderer/render_context.h"
+#include "gui/gui_system.h"
 #include <vector>
 #include <memory>
 #include <string>
 
-class RenderPipeline;
 class ScreenMaterial;
 
 class RendererApp {
@@ -24,11 +25,13 @@ public:
 	void run();
 	void shutdown();
 
+	// Inject a custom pipeline before init() to replace the default one.
+	void setPipeline(std::unique_ptr<IRenderPipeline> pipeline);
+
 private:
 	void prepareScene();
 	void prepareCamera();
-	void initImGui();
-	void renderImGui();
+	void buildGuiPanels();
 
 	void addObject(const std::string& type);
 	void removeSelectedObject();
@@ -47,21 +50,19 @@ private:
 	int mWidth{ 0 };
 	int mHeight{ 0 };
 
-	std::unique_ptr<RenderPipeline>    mPipeline;
+	std::unique_ptr<IRenderPipeline>   mPipeline;
 	std::unique_ptr<Scene>             mMainScene;
 	std::unique_ptr<Scene>             mPostScene;
-
-	ScreenMaterial*    mScreenMat{ nullptr };
+	ScreenMaterial*                    mScreenMat{ nullptr };
 
 	std::unique_ptr<Camera>            mCamera;
 	std::unique_ptr<GameCameraControl> mCameraControl;
 
-	DirectionalLight*  mDirLight{ nullptr };
+	DirectionalLight*        mDirLight{ nullptr };
 	std::vector<PointLight*> mPointLights;
-	std::vector<Mesh*> mDynamicObjects;
-	int mSelectedObject{ -1 };
+	std::vector<Mesh*>       mDynamicObjects;
+	int                      mSelectedObject{ -1 };
 
-	int        mRenderModeIdx{ 0 };
-	glm::vec3  mAmbientColor{ 0.15f };
-	glm::vec3  mClearColor{};
+	RenderContext mRenderCtx;
+	GuiSystem     mGuiSystem;
 };
