@@ -35,6 +35,7 @@ public:
 
 	//¸¸×Ó¹ØÏµ
 	void addChild(Object* obj);
+	void removeChild(Object* obj);
 	const std::vector<Object*>& getChildren() const;
 	Object* getParent();
 

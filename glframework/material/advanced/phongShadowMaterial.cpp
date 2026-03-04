@@ -27,6 +27,7 @@ void PhongShadowMaterial::applyUniforms(
 	Camera* camera,
 	const std::vector<PointLight*>& pointLights
 ) {
+	// Per-object transforms
 	shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
 	shader->setMatrix4x4("viewMatrix", camera->getViewMatrix());
 	shader->setMatrix4x4("projectionMatrix", camera->getProjectionMatrix());
@@ -34,21 +35,15 @@ void PhongShadowMaterial::applyUniforms(
 	auto normalMatrix = glm::mat3(glm::transpose(glm::inverse(mesh->getModelMatrix())));
 	shader->setMatrix3x3("normalMatrix", normalMatrix);
 
+	// Per-object textures
 	shader->setInt("sampler", 0);
 	if (mDiffuse) mDiffuse->bind();
 
 	shader->setInt("specularMaskSampler", 1);
 	if (mSpecularMask) mSpecularMask->bind();
 
+	// Per-material params
 	shader->setFloat("shiness", mShiness);
-	shader->setVector3("cameraPosition", camera->mPosition);
 
-	for (int i = 0; i < pointLights.size(); i++) {
-		shader->setVector3("pointLights[" + std::to_string(i) + "].color", pointLights[i]->mColor);
-		shader->setVector3("pointLights[" + std::to_string(i) + "].position", pointLights[i]->getPosition());
-		shader->setFloat("pointLights[" + std::to_string(i) + "].k2", pointLights[i]->mK2);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].k1", pointLights[i]->mK1);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].kc", pointLights[i]->mKc);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].specularIntensity", pointLights[i]->mSpecularIntensity);
-	}
+	// Lights, shadow, ambient, camera, opacity all come from UBOs
 }

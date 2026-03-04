@@ -11,6 +11,7 @@ public:
 	void update()override;
 
 	void setSpeed(float s) { mSpeed = s; }
+	float getSpeed() const { return mSpeed; }
 
 private:
 	void pitch(float angle);

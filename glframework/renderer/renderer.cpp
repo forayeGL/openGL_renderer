@@ -4,12 +4,15 @@
 #include "../mesh/instancedMesh.h"
 #include "../../application/camera/orthographicCamera.h"
 #include "../shader_manager.h"
+#include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/pointLightShadow.h"
 
 #include <string>
 #include <algorithm>
 
 
 Renderer::Renderer() {
+	mUBOManager.init();
 }
 
 Renderer::~Renderer() {
@@ -29,12 +32,12 @@ void Renderer::msaaResolve(Framebuffer* src, Framebuffer* dst) {
 void Renderer::render(
 	Scene* scene,
 	Camera* camera,
+	DirectionalLight* dirLight,
 	const std::vector<PointLight*>& pointLights,
 	unsigned int fbo
 ) {
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-	////1 设置当前帧绘制的时候，opengl的必要状态机参数
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
@@ -42,20 +45,14 @@ void Renderer::render(
 	glDisable(GL_POLYGON_OFFSET_FILL);
 	glDisable(GL_POLYGON_OFFSET_LINE);
 
-
-	//开启测试、设置基本写入状态，打开模板测试写入
 	glEnable(GL_STENCIL_TEST);
 	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-	glStencilMask(0xFF);//保证了模板缓冲可以被清理
+	glStencilMask(0xFF);
 
-	//默认颜色混合
 	glDisable(GL_BLEND);
 
-	//2 清理画布 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-
-	//清空两个队列
 	mOpacityObjects.clear();
 	mTransparentObjects.clear();
 
@@ -66,32 +63,73 @@ void Renderer::render(
 		mTransparentObjects.end(),
 		[camera](const Mesh* a, const Mesh* b) {
 			auto viewMatrix = camera->getViewMatrix();
-
-			//1 计算a的相机系的Z
-			auto modelMatrixA = a->getModelMatrix();
-			auto worldPositionA = modelMatrixA * glm::vec4(0.0, 0.0, 0.0, 1.0);
+			auto worldPositionA = a->getModelMatrix() * glm::vec4(0.0, 0.0, 0.0, 1.0);
 			auto cameraPositionA = viewMatrix * worldPositionA;
-
-			//2 计算b的相机系的Z
-			auto modelMatrixB = b->getModelMatrix();
-			auto worldPositionB = modelMatrixB * glm::vec4(0.0, 0.0, 0.0, 1.0);
+			auto worldPositionB = b->getModelMatrix() * glm::vec4(0.0, 0.0, 0.0, 1.0);
 			auto cameraPositionB = viewMatrix * worldPositionB;
-
 			return cameraPositionA.z < cameraPositionB.z;
 		}
 	);
 
-	//渲染Shadowmap
-	//renderShadowMap(camera, mOpacityObjects, pointLight);
+	// Save viewport before shadow passes
+	GLint savedViewport[4];
+	glGetIntegerv(GL_VIEWPORT, savedViewport);
 
-	//3 渲染两个队列
-	for (int i = 0; i < mOpacityObjects.size(); i++) {
-		renderObject(mOpacityObjects[i], camera, pointLights);
+	// Shadow map passes
+	if (dirLight && dirLight->mShadow) {
+		renderDirectionalShadow(dirLight, mOpacityObjects);
 	}
 
-	for (int i = 0; i < mTransparentObjects.size(); i++) {
-		renderObject(mTransparentObjects[i], camera, pointLights);
+	for (auto* pl : pointLights) {
+		if (pl->mShadow) {
+			renderPointShadow(pl, mOpacityObjects);
+		}
 	}
+
+	// Restore FBO and viewport
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+
+	// Update UBOs once per frame
+	mUBOManager.updateLights(dirLight, pointLights);
+	mUBOManager.updateShadow(dirLight, pointLights);
+	mUBOManager.updateRenderSettings(camera, mRenderMode, mAmbientColor);
+
+	// Apply render mode
+	if (mRenderMode == RenderMode::Wireframe) {
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	} else {
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	}
+
+	// Bind shadow textures globally
+	if (dirLight && dirLight->mShadow) {
+		auto* shadow = dirLight->mShadow;
+		if (shadow->mRenderTarget && shadow->mRenderTarget->mDepthAttachment) {
+			shadow->mRenderTarget->mDepthAttachment->setUnit(6);
+			shadow->mRenderTarget->mDepthAttachment->bind();
+		}
+	}
+
+	for (int i = 0; i < (int)pointLights.size() && i < MAX_POINT_SHADOW; i++) {
+		auto* pl = pointLights[i];
+		if (pl->mShadow && pl->mShadow->mRenderTarget && pl->mShadow->mRenderTarget->mDepthAttachment) {
+			int unit = 7 + i;
+			pl->mShadow->mRenderTarget->mDepthAttachment->setUnit(unit);
+			pl->mShadow->mRenderTarget->mDepthAttachment->bind();
+		}
+	}
+
+	for (int i = 0; i < (int)mOpacityObjects.size(); i++) {
+		renderObject(mOpacityObjects[i], camera, dirLight, pointLights);
+	}
+
+	for (int i = 0; i < (int)mTransparentObjects.size(); i++) {
+		renderObject(mTransparentObjects[i], camera, dirLight, pointLights);
+	}
+
+	// Reset polygon mode
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
 void Renderer::projectObject(Object* obj) {
@@ -115,6 +153,7 @@ void Renderer::projectObject(Object* obj) {
 void Renderer::renderObject(
 	Object* object,
 	Camera* camera,
+	DirectionalLight* dirLight,
 	const std::vector<PointLight*>& pointLights
 ) {
 	if (object->getType() == ObjectType::Mesh || object->getType() == ObjectType::InstancedMesh) {
@@ -141,7 +180,18 @@ void Renderer::renderObject(
 		);
 
 		shader->begin();
+
+		// Bind UBOs to this shader program
+		mUBOManager.bindToShader(shader->getProgram());
+
+		// Per-object uniforms
 		material->applyUniforms(shader, mesh, camera, pointLights);
+
+		// Shadow texture samplers
+		shader->setInt("shadowMapSampler", 6);
+		for (int i = 0; i < (int)pointLights.size() && i < MAX_POINT_SHADOW; i++) {
+			shader->setInt("pointShadowMaps[" + std::to_string(i) + "]", 7 + i);
+		}
 
 		glBindVertexArray(geometry->getVao());
 
@@ -214,6 +264,83 @@ void Renderer::setFaceCullingState(Material* material) {
 	}
 	else {
 		glDisable(GL_CULL_FACE);
+	}
+}
+
+void Renderer::renderDirectionalShadow(
+	DirectionalLight* dirLight,
+	const std::vector<Mesh*>& objects
+) {
+	auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
+	auto* fbo = shadow->mRenderTarget;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	auto lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
+
+	Shader* shader = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/advanced/shadow.vert",
+		"assets/shaders/advanced/shadow.frag"
+	);
+	shader->begin();
+	shader->setMatrix4x4("lightMatrix", lightMatrix);
+
+	for (auto* mesh : objects) {
+		shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+		glBindVertexArray(mesh->mGeometry->getVao());
+		glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+	}
+}
+
+void Renderer::renderPointShadow(
+	PointLight* pointLight,
+	const std::vector<Mesh*>& objects
+) {
+	auto* shadow = static_cast<PointLightShadow*>(pointLight->mShadow);
+	auto* fbo = shadow->mRenderTarget;
+
+	auto lightMatrices = shadow->getLightMatrices(pointLight->getPosition());
+
+	Shader* shader = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/advanced/shadowDistance.vert",
+		"assets/shaders/advanced/shadowDistance.frag"
+	);
+
+	shader->begin();
+	shader->setFloat("far", shadow->mCamera->mFar);
+	shader->setVector3("lightPosition", pointLight->getPosition());
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	for (int face = 0; face < 6; face++) {
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER,
+			GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+			fbo->mDepthAttachment->getTexture(),
+			0
+		);
+		glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+		glClear(GL_DEPTH_BUFFER_BIT);
+
+		shader->setMatrix4x4("lightMatrix", lightMatrices[face]);
+
+		for (auto* mesh : objects) {
+			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+			glBindVertexArray(mesh->mGeometry->getVao());
+			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		}
 	}
 }
 

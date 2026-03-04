@@ -42,13 +42,15 @@ void PhongPointShadowMaterial::applyUniforms(
 
 	shader->setFloat("shiness", mShiness);
 	shader->setVector3("cameraPosition", camera->mPosition);
+	shader->setVector3("ambientColor", 0.15f, 0.15f, 0.15f);
+	shader->setFloat("opacity", mOpacity);
 
-	for (int i = 0; i < pointLights.size(); i++) {
-		shader->setVector3("pointLights[" + std::to_string(i) + "].color", pointLights[i]->mColor);
-		shader->setVector3("pointLights[" + std::to_string(i) + "].position", pointLights[i]->getPosition());
-		shader->setFloat("pointLights[" + std::to_string(i) + "].k2", pointLights[i]->mK2);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].k1", pointLights[i]->mK1);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].kc", pointLights[i]->mKc);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].specularIntensity", pointLights[i]->mSpecularIntensity);
+	if (!pointLights.empty()) {
+		shader->setVector3("pointLight.color", pointLights[0]->mColor);
+		shader->setVector3("pointLight.position", pointLights[0]->getPosition());
+		shader->setFloat("pointLight.k2", pointLights[0]->mK2);
+		shader->setFloat("pointLight.k1", pointLights[0]->mK1);
+		shader->setFloat("pointLight.kc", pointLights[0]->mKc);
+		shader->setFloat("pointLight.specularIntensity", pointLights[0]->mSpecularIntensity);
 	}
 }

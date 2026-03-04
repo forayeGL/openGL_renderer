@@ -4,9 +4,13 @@
 #include "camera/camera.h"
 #include "camera/GameCameraControl.h"
 #include "../glframework/scene.h"
+#include "../glframework/light/directionalLight.h"
 #include "../glframework/light/pointLight.h"
+#include "../glframework/mesh/mesh.h"
+#include "../glframework/renderer/ubo_manager.h"
 #include <vector>
 #include <memory>
+#include <string>
 
 class RenderPipeline;
 class ScreenMaterial;
@@ -26,6 +30,11 @@ private:
 	void initImGui();
 	void renderImGui();
 
+	void addObject(const std::string& type);
+	void removeSelectedObject();
+	void addPointLight();
+	void removePointLight(int idx);
+
 	static void onResize(int width, int height);
 	static void onKey(int key, int action, int mods);
 	static void onMouse(int button, int action, int mods);
@@ -42,11 +51,17 @@ private:
 	std::unique_ptr<Scene>             mMainScene;
 	std::unique_ptr<Scene>             mPostScene;
 
-	ScreenMaterial*    mScreenMat{ nullptr }; // non-owning, owned by mPostScene tree
+	ScreenMaterial*    mScreenMat{ nullptr };
 
 	std::unique_ptr<Camera>            mCamera;
 	std::unique_ptr<GameCameraControl> mCameraControl;
 
+	DirectionalLight*  mDirLight{ nullptr };
 	std::vector<PointLight*> mPointLights;
-	glm::vec3 mClearColor{};
+	std::vector<Mesh*> mDynamicObjects;
+	int mSelectedObject{ -1 };
+
+	int        mRenderModeIdx{ 0 };
+	glm::vec3  mAmbientColor{ 0.15f };
+	glm::vec3  mClearColor{};
 };

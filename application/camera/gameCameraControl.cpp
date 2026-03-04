@@ -63,6 +63,14 @@ void GameCameraControl::update() {
 		direction += right;
 	}
 
+	if (mKeyMap[GLFW_KEY_Q]) {
+		mCamera->mPosition += mCamera->mUp * mSpeed;
+	}
+
+	if (mKeyMap[GLFW_KEY_E]) {
+		mCamera->mPosition -= mCamera->mUp * mSpeed;
+	}
+
 	//此时direction有可能不为1的长度，也有可能是0的长度
 	if (glm::length(direction) != 0) {
 		direction = glm::normalize(direction);
