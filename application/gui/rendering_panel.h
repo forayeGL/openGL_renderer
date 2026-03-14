@@ -5,7 +5,8 @@
 #include "../../glframework/core.h"
 #include "../../application/camera/GameCameraControl.h"
 
-// RenderingPanel: render mode, exposure, bloom, clear/ambient color, camera speed.
+// RenderingPanel: render mode, exposure, bloom, clear/ambient color, camera speed,
+// and optional debug axis/grid overlay toggle.
 class RenderingPanel : public IGuiPanel {
 public:
 	RenderingPanel(
@@ -14,7 +15,8 @@ public:
 		glm::vec3&         ambientColor,
 		ScreenMaterial*    screenMat,
 		Bloom*             bloom,
-		GameCameraControl* cameraControl
+		GameCameraControl* cameraControl,
+		bool&              showDebugAxis
 	);
 
 	void onRender() override;
@@ -26,4 +28,5 @@ private:
 	ScreenMaterial*    mScreenMat;
 	Bloom*             mBloom;
 	GameCameraControl* mCameraControl;
+	bool&              mShowDebugAxis;
 };
