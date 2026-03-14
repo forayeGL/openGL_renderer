@@ -7,7 +7,8 @@ RenderingPanel::RenderingPanel(
 	glm::vec3&         ambientColor,
 	ScreenMaterial*    screenMat,
 	Bloom*             bloom,
-	GameCameraControl* cameraControl
+	GameCameraControl* cameraControl,
+	bool&              showDebugAxis
 )
 	: mRenderModeIdx(renderModeIdx)
 	, mClearColor(clearColor)
@@ -15,6 +16,7 @@ RenderingPanel::RenderingPanel(
 	, mScreenMat(screenMat)
 	, mBloom(bloom)
 	, mCameraControl(cameraControl)
+	, mShowDebugAxis(showDebugAxis)
 {}
 
 void RenderingPanel::onRender() {
@@ -22,6 +24,8 @@ void RenderingPanel::onRender() {
 
 	const char* modeNames[] = { "Fill", "Wireframe", "Shadow Only" };
 	ImGui::Combo("Render Mode", &mRenderModeIdx, modeNames, 3);
+
+	ImGui::Checkbox("Debug Axis / Grid", &mShowDebugAxis);
 
 	ImGui::SliderFloat("Exposure",      &mScreenMat->mExposure, 0.0f, 10.0f);
 	ImGui::ColorEdit3("Clear Color",    &mClearColor.x);

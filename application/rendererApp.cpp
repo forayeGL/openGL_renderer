@@ -226,7 +226,8 @@ void RendererApp::buildGuiPanels() {
 			mRenderCtx.ambientColor,
 			mScreenMat,
 			dp->getBloom(),
-			mCameraControl.get()
+			mCameraControl.get(),
+			mRenderCtx.showDebugAxis
 		));
 	}
 }

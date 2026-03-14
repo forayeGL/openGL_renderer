@@ -19,4 +19,5 @@ struct RenderContext {
 	glm::vec3 clearColor{};
 	glm::vec3 ambientColor{ 0.15f };
 	int       renderModeIdx{ 0 };
+	bool      showDebugAxis{ false };
 };
