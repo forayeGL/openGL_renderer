@@ -6,6 +6,7 @@
 
 class Renderer;
 class Bloom;
+class DebugAxis;
 
 // Default forward+ pipeline: shadow passes → MSAA HDR scene → bloom → post screen.
 // This is the concrete replacement for the old RenderPipeline class.
@@ -27,6 +28,8 @@ private:
 	std::unique_ptr<Bloom>       mBloom;
 	std::unique_ptr<Framebuffer> mFboMulti;
 	std::unique_ptr<Framebuffer> mFboResolve;
+	std::unique_ptr<DebugAxis>   mDebugAxis;
+	UBOManager mUBOManager;
 	int mWidth{ 0 };
 	int mHeight{ 0 };
 };

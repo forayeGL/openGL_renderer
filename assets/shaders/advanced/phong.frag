@@ -7,47 +7,69 @@ in vec2 uv;
 in vec3 normal;
 in vec3 worldPosition;
 
-uniform sampler2D sampler;	//diffuse贴图采样器
-uniform sampler2D specularMaskSampler;//specularMask贴图采样器
+// UBOs
+#include "../common/lightUBO.glsl"
+#include "../common/renderSettings.glsl"
 
-uniform vec3 ambientColor;
+uniform sampler2D sampler;
+uniform sampler2D specularMaskSampler;
 
-//相机世界位置
-uniform vec3 cameraPosition;
+uniform float shiness;
 
+// ===== Phong lighting (UBO-based) =====
 
+vec3 calcDiffuse(vec3 lightColor, vec3 objColor, vec3 lightDir, vec3 N) {
+	float diff = clamp(dot(-lightDir, N), 0.0, 1.0);
+	return lightColor * diff * objColor;
+}
 
+vec3 calcSpecular(vec3 lightColor, vec3 lightDir, vec3 N, vec3 V, float specIntensity) {
+	float flag = step(0.0, dot(-lightDir, N));
+	vec3 R = normalize(reflect(lightDir, N));
+	float spec = pow(max(dot(R, -V), 0.0), shiness);
+	return lightColor * spec * flag * specIntensity;
+}
 
-//透明度
-uniform float opacity;
+vec3 calcDirectionalLight(vec3 objColor, vec3 N, vec3 V) {
+	vec3 dir = normalize(dirLight.direction.xyz);
+	vec3 col = dirLight.color.xyz * dirLight.color.w;
+	float specI = dirLight.specularPad.x;
+	return calcDiffuse(col, objColor, dir, N) + calcSpecular(col, dir, N, V, specI);
+}
 
-
-#include "../common/lightStruct.glsl"
-#include "../common/phongLightFunc.glsl"
-
-uniform DirectionalLight directionalLight;
-
-
+vec3 calcPointLight(GPUPointLight pl, vec3 objColor, vec3 N, vec3 V) {
+	vec3 lightDir = normalize(worldPosition - pl.position.xyz);
+	float dist = length(worldPosition - pl.position.xyz);
+	float specI = pl.attenuation.x;
+	float k2 = pl.attenuation.y;
+	float k1 = pl.attenuation.z;
+	float kc = pl.attenuation.w;
+	float atten = 1.0 / (k2 * dist * dist + k1 * dist + kc);
+	return (calcDiffuse(pl.color.xyz, objColor, lightDir, N)
+		  + calcSpecular(pl.color.xyz, lightDir, N, V, specI)) * atten;
+}
 
 void main()
 {
-//环境光计算
-	vec3 objectColor  = texture(sampler, uv).xyz ;
-	vec3 result = vec3(0.0,0.0,0.0);
+	if (renderMode == 2) {
+		FragColor = vec4(1.0);
+		return;
+	}
 
-	//计算光照的通用数据
-	vec3 normalN = normalize(normal);
-	vec3 viewDir = normalize(worldPosition - cameraPosition);
+	vec3 objectColor = texture(sampler, uv).xyz;
+	vec3 N = normalize(normal);
+	vec3 V = normalize(worldPosition - uCameraPosition.xyz);
 
-	result += calculateDirectionalLight(objectColor, directionalLight,normalN, viewDir);
+	vec3 result = calcDirectionalLight(objectColor, N, V);
 
-	
-	float alpha =  texture(sampler, uv).a;
+	int nPL = numPointLights;
+	for (int i = 0; i < nPL && i < MAX_POINT_LIGHTS; i++) {
+		result += calcPointLight(pointLights[i], objectColor, N, V);
+	}
 
-	vec3 ambientColor = objectColor * ambientColor;
+	float alpha = texture(sampler, uv).a;
+	vec3 ambient = objectColor * ambientColor.xyz;
+	vec3 finalColor = result + ambient;
 
-	vec3 finalColor = result + ambientColor;
-	
-
-	FragColor = vec4(finalColor,alpha * opacity);
+	FragColor = vec4(finalColor, alpha * uOpacity);
 }

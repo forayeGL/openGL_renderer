@@ -14,11 +14,11 @@ PhongPointShadowMaterial::~PhongPointShadowMaterial() {
 }
 
 const char* PhongPointShadowMaterial::getVertexShaderPath() const {
-	return "assets/shaders/advanced/phongPointShadow.vert";
+    return "assets/shaders/shadow/phongPointShadow.vert";
 }
 
 const char* PhongPointShadowMaterial::getFragmentShaderPath() const {
-	return "assets/shaders/advanced/phongPointShadow.frag";
+    return "assets/shaders/shadow/phongPointShadow.frag";
 }
 
 void PhongPointShadowMaterial::applyUniforms(
@@ -41,16 +41,6 @@ void PhongPointShadowMaterial::applyUniforms(
 	if (mSpecularMask) mSpecularMask->bind();
 
 	shader->setFloat("shiness", mShiness);
-	shader->setVector3("cameraPosition", camera->mPosition);
-	shader->setVector3("ambientColor", 0.15f, 0.15f, 0.15f);
-	shader->setFloat("opacity", mOpacity);
 
-	if (!pointLights.empty()) {
-		shader->setVector3("pointLight.color", pointLights[0]->mColor);
-		shader->setVector3("pointLight.position", pointLights[0]->getPosition());
-		shader->setFloat("pointLight.k2", pointLights[0]->mK2);
-		shader->setFloat("pointLight.k1", pointLights[0]->mK1);
-		shader->setFloat("pointLight.kc", pointLights[0]->mKc);
-		shader->setFloat("pointLight.specularIntensity", pointLights[0]->mSpecularIntensity);
-	}
+	// Lights, shadow, ambient, camera, opacity all come from UBOs
 }

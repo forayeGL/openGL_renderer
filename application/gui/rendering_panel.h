@@ -10,6 +10,7 @@ class RenderingPanel : public IGuiPanel {
 public:
 	RenderingPanel(
 		int&               renderModeIdx,
+		int&               shadowType,
 		glm::vec3&         clearColor,
 		glm::vec3&         ambientColor,
 		ScreenMaterial*    screenMat,
@@ -21,6 +22,7 @@ public:
 
 private:
 	int&               mRenderModeIdx;
+	int&               mShadowType;
 	glm::vec3&         mClearColor;
 	glm::vec3&         mAmbientColor;
 	ScreenMaterial*    mScreenMat;

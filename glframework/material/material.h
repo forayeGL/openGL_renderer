@@ -8,6 +8,11 @@ class Camera;
 class PointLight;
 
 //使用C++的枚举类型
+/**
+ * @brief 材质类型枚举
+ * 
+ * 标识各种材质类型，用于运行时类型判断和Shader选择。
+ */
 enum class MaterialType {
 	PhongMaterial,
 	WhiteMaterial,
@@ -24,7 +29,11 @@ enum class MaterialType {
 	PhongShadowMaterial,
 	PhongCSMShadowMaterial,
 	PhongPointShadowMaterial,
-	PbrMaterial
+	PbrMaterial,
+	IBLMaterial,
+
+	// 延迟渲染专用材质类型
+	DeferredPbrMaterial
 };
 
 class Material {

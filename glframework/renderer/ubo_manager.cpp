@@ -59,6 +59,7 @@ void UBOManager::updateLights(
 
 	glBindBuffer(GL_UNIFORM_BUFFER, mLightUBO);
 	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(LightUBOData), &mLightData);
+	glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_LIGHTS, mLightUBO);
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
@@ -107,20 +108,23 @@ void UBOManager::updateShadow(
 
 	glBindBuffer(GL_UNIFORM_BUFFER, mShadowUBO);
 	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ShadowUBOData), &mShadowData);
+	glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_SHADOW, mShadowUBO);
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 void UBOManager::updateRenderSettings(
 	Camera* camera,
 	RenderMode mode,
+	int shadowType,
 	glm::vec3 ambientColor
 ) {
 	mSettingsData.ambientColor = glm::vec4(ambientColor, 0.0f);
 	mSettingsData.cameraPosition = glm::vec4(camera->mPosition, 0.0f);
-	mSettingsData.renderParams = glm::vec4(1.0f, static_cast<float>(static_cast<int>(mode)), 0.0f, 0.0f);
+	mSettingsData.renderParams = glm::vec4(1.0f, static_cast<float>(static_cast<int>(mode)), static_cast<float>(shadowType), 0.0f);
 
 	glBindBuffer(GL_UNIFORM_BUFFER, mSettingsUBO);
 	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(RenderSettingsUBOData), &mSettingsData);
+	glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_RENDER_SETTINGS, mSettingsUBO);
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 

@@ -93,7 +93,7 @@ void Renderer::render(
 	// Update UBOs once per frame
 	mUBOManager.updateLights(dirLight, pointLights);
 	mUBOManager.updateShadow(dirLight, pointLights);
-	mUBOManager.updateRenderSettings(camera, mRenderMode, mAmbientColor);
+	mUBOManager.updateRenderSettings(camera, mRenderMode, mShadowType, mAmbientColor);
 
 	// Apply render mode
 	if (mRenderMode == RenderMode::Wireframe) {
@@ -188,8 +188,10 @@ void Renderer::renderObject(
 		material->applyUniforms(shader, mesh, camera, pointLights);
 
 		// Shadow texture samplers
+		// 始终将所有shadow sampler指向非冲突的纹理单元，
+		// 防止samplerCube默认指向unit 0导致类型冲突
 		shader->setInt("shadowMapSampler", 6);
-		for (int i = 0; i < (int)pointLights.size() && i < MAX_POINT_SHADOW; i++) {
+		for (int i = 0; i < MAX_POINT_SHADOW; i++) {
 			shader->setInt("pointShadowMaps[" + std::to_string(i) + "]", 7 + i);
 		}
 
@@ -286,8 +288,8 @@ void Renderer::renderDirectionalShadow(
 	auto lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
 
 	Shader* shader = ShaderManager::getInstance().getOrCreate(
-		"assets/shaders/advanced/shadow.vert",
-		"assets/shaders/advanced/shadow.frag"
+		"assets/shaders/shadow/shadow.vert",
+		"assets/shaders/shadow/shadow.frag"
 	);
 	shader->begin();
 	shader->setMatrix4x4("lightMatrix", lightMatrix);
@@ -309,8 +311,8 @@ void Renderer::renderPointShadow(
 	auto lightMatrices = shadow->getLightMatrices(pointLight->getPosition());
 
 	Shader* shader = ShaderManager::getInstance().getOrCreate(
-		"assets/shaders/advanced/shadowDistance.vert",
-		"assets/shaders/advanced/shadowDistance.frag"
+		"assets/shaders/shadow/shadowDistance.vert",
+		"assets/shaders/shadow/shadowDistance.frag"
 	);
 
 	shader->begin();
@@ -342,5 +344,25 @@ void Renderer::renderPointShadow(
 			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
 		}
 	}
+}
+
+void Renderer::renderIBLDiffuse(Texture* hdrTex, Framebuffer* fbo)
+{
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glDisable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glDisable(GL_BLEND);
+	Shader* shader = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/advanced/IBL/iblDiffusePass.vert",
+		"assets/shaders/advanced/IBL/iblDiffusePass.frag"
+	);
+	shader->begin();
+	shader->setInt("hdrTex", 0);
+	hdrTex->setUnit(0);
+	hdrTex->bind();
+	glBindVertexArray(Geometry::createScreenPlane()->getVao());
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 

@@ -235,6 +235,36 @@ Texture* Texture::createHDRTexture(
 	return tex;
 }
 
+Texture* Texture::createGBufferAttachment(
+	unsigned int width,
+	unsigned int height,
+	unsigned int internalFormat,
+	unsigned int dataFormat,
+	unsigned int dataType,
+	unsigned int unit
+) {
+	Texture* tex = new Texture();
+
+	GLuint glTex;
+	glGenTextures(1, &glTex);
+	glBindTexture(GL_TEXTURE_2D, glTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0,
+		dataFormat, dataType, nullptr);
+	// GBuffer使用最近邻采样，避免跨像素插值导致数据混乱
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	tex->mTexture = glTex;
+	tex->mWidth = width;
+	tex->mHeight = height;
+	tex->mUnit = unit;
+	tex->mTextureTarget = GL_TEXTURE_2D;
+
+	return tex;
+}
+
 Texture* Texture::createNearestTexture(std::string path) {
 	auto texture = new Texture(path, 0);
 	glBindTexture(GL_TEXTURE_2D, texture->mTexture);
@@ -301,9 +331,10 @@ Texture* Texture::createExrTexture(const std::string& path) {
 	float* data = nullptr;
 	const char* err = nullptr;
 	int ret = 0;
-	//这个函数第一个参数的名字就叫out-rgba 卧槽
+
 	ret = LoadEXR(&data, &width, &height, path.c_str(), &err);
 	int num_channels = 4; // 假设每个像素 4 通道 (RGBA)
+	// 倒置y轴，可用shader实现，这里偷梁换柱直接在CPU上操作数据
 	for (int y = 0; y < height / 2; ++y) {
 		int opposite_y = height - y - 1;
 		for (int x = 0; x < width * num_channels; ++x) {

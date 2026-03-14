@@ -33,8 +33,8 @@ private:
 	Shader* mMergeShader{ nullptr };
 
 public:
-	float mThreshold{ 1.0f };
+	float mThreshold{ 1.2f };
 	float mBloomRadius{ 0.1f };
-	float mBloomAttenuation{ 1.0f };
-	float mBloomIntensity{ 1.0f };
+	float mBloomAttenuation{ 0.8f };
+	float mBloomIntensity{ 0.3f };
 };

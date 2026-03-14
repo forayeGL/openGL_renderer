@@ -41,14 +41,6 @@ void PhongMaterial::applyUniforms(
 	shader->setMatrix3x3("normalMatrix", normalMatrix);
 
 	shader->setFloat("shiness", mShiness);
-	shader->setVector3("cameraPosition", camera->mPosition);
 
-	for (int i = 0; i < pointLights.size(); i++) {
-		shader->setVector3("pointLights[" + std::to_string(i) + "].color", pointLights[i]->mColor);
-		shader->setVector3("pointLights[" + std::to_string(i) + "].position", pointLights[i]->getPosition());
-		shader->setFloat("pointLights[" + std::to_string(i) + "].k2", pointLights[i]->mK2);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].k1", pointLights[i]->mK1);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].kc", pointLights[i]->mKc);
-		shader->setFloat("pointLights[" + std::to_string(i) + "].specularIntensity", pointLights[i]->mSpecularIntensity);
-	}
+	// Lights, camera position, ambient, opacity all come from UBOs
 }

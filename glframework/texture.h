@@ -58,6 +58,25 @@ public:
 		unsigned int unit
 	);
 
+	/**
+	 * @brief 创建GBuffer附件纹理
+	 * @param width  纹理宽度
+	 * @param height 纹理高度
+	 * @param internalFormat 内部格式（如GL_RGBA16F, GL_RGBA8）
+	 * @param dataFormat     数据格式（如GL_RGBA）
+	 * @param dataType       数据类型（如GL_FLOAT, GL_UNSIGNED_BYTE）
+	 * @param unit           纹理单元
+	 * @return 创建好的Texture指针
+	 */
+	static Texture* createGBufferAttachment(
+		unsigned int width,
+		unsigned int height,
+		unsigned int internalFormat,
+		unsigned int dataFormat,
+		unsigned int dataType,
+		unsigned int unit
+	);
+
 	static Texture* createNearestTexture(std::string path);
 
 	static Texture* createExrCubeMap(std::vector<std::string> paths);

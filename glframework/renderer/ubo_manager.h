@@ -56,7 +56,7 @@ struct ShadowUBOData {
 struct RenderSettingsUBOData {
 	glm::vec4 ambientColor;       //  0 - 15
 	glm::vec4 cameraPosition;     // 16 - 31
-	glm::vec4 renderParams;       // 32 - 47  x=opacity, y=renderMode(as float)
+	glm::vec4 renderParams;       // 32 - 47  x=opacity, y=renderMode(as float), z=shadowType(as float)
 };
 // 48 bytes
 
@@ -86,6 +86,7 @@ public:
 	void updateRenderSettings(
 		Camera* camera,
 		RenderMode mode,
+		int shadowType,
 		glm::vec3 ambientColor = glm::vec3(0.15f)
 	);
 

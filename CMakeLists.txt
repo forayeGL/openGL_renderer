@@ -32,3 +32,8 @@ add_subdirectory(imgui)
 add_executable(openglRenderer "main.cpp" "glad.c" )
 
 target_link_libraries(openglRenderer glfw3.lib  assimp-vc143-mtd.lib zlibstaticd.lib   wrapper app fw imguilib)
+
+# IBL baking tool (standalone executable, no imgui/app dependency)
+add_executable(iblBaker "tools/iblBaker/main.cpp" "glad.c")
+target_include_directories(iblBaker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(iblBaker glfw3.lib zlibstaticd.lib wrapper app fw)

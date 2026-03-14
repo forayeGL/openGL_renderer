@@ -19,42 +19,30 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath) {
 		std::cout << "ERROR: Shader File Error: " << e.what() << std::endl;
 	}
 
-	const char* vertexShaderSource = vertexCode.c_str();
+	const char* vertexShaderSource   = vertexCode.c_str();
 	const char* fragmentShaderSource = fragmentCode.c_str();
-	//1 创建Shader程序（vs、fs）
-	GLuint vertex, fragment;
-	vertex = glCreateShader(GL_VERTEX_SHADER);
-	fragment = glCreateShader(GL_FRAGMENT_SHADER);
 
-	//2 为shader程序输入shader代码
-	glShaderSource(vertex, 1, &vertexShaderSource, NULL);
-	glShaderSource(fragment, 1, &fragmentShaderSource, NULL);
-
-	//3 执行shader代码编译 
-	glCompileShader(vertex);
-	//检查vertex编译结果
+	// Create and compile vertex shader
+	GLuint vertex = GL_CALL(glCreateShader(GL_VERTEX_SHADER));
+	GL_CALL(glShaderSource(vertex, 1, &vertexShaderSource, NULL));
+	GL_CALL(glCompileShader(vertex));
 	checkShaderErrors(vertex, "COMPILE");
-	
-	glCompileShader(fragment);
-	//检查fragment编译结果
+
+	// Create and compile fragment shader
+	GLuint fragment = GL_CALL(glCreateShader(GL_FRAGMENT_SHADER));
+	GL_CALL(glShaderSource(fragment, 1, &fragmentShaderSource, NULL));
+	GL_CALL(glCompileShader(fragment));
 	checkShaderErrors(fragment, "COMPILE");
-	
-	//4 创建一个Program壳子
-	mProgram = glCreateProgram();
 
-	//6 将vs与fs编译好的结果放到program这个壳子里
-	glAttachShader(mProgram, vertex);
-	glAttachShader(mProgram, fragment);
-
-	//7 执行program的链接操作，形成最终可执行shader程序
-	glLinkProgram(mProgram);
-
-	//检查链接错误
+	// Link program
+	mProgram = GL_CALL(glCreateProgram());
+	GL_CALL(glAttachShader(mProgram, vertex));
+	GL_CALL(glAttachShader(mProgram, fragment));
+	GL_CALL(glLinkProgram(mProgram));
 	checkShaderErrors(mProgram, "LINK");
 
-	//清理
-	glDeleteShader(vertex);
-	glDeleteShader(fragment);
+	GL_CALL(glDeleteShader(vertex));
+	GL_CALL(glDeleteShader(fragment));
 }
 Shader::~Shader() {
 	if (mProgram) {

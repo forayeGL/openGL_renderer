@@ -12,11 +12,11 @@ ScreenMaterial::~ScreenMaterial() {
 }
 
 const char* ScreenMaterial::getVertexShaderPath() const {
-	return "assets/shaders/screen.vert";
+	return "assets/shaders/junior/screen.vert";
 }
 
 const char* ScreenMaterial::getFragmentShaderPath() const {
-	return "assets/shaders/screen.frag";
+	return "assets/shaders/junior/screen.frag";
 }
 
 void ScreenMaterial::applyUniforms(

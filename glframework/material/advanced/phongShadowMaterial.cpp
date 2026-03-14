@@ -14,11 +14,11 @@ PhongShadowMaterial::~PhongShadowMaterial() {
 }
 
 const char* PhongShadowMaterial::getVertexShaderPath() const {
-	return "assets/shaders/advanced/phongShadow.vert";
+    return "assets/shaders/shadow/phongShadow.vert";
 }
 
 const char* PhongShadowMaterial::getFragmentShaderPath() const {
-	return "assets/shaders/advanced/phongShadow.frag";
+    return "assets/shaders/shadow/phongShadow.frag";
 }
 
 void PhongShadowMaterial::applyUniforms(

@@ -42,6 +42,8 @@ public:
 		const std::vector<Mesh*>& objects
 	);
 
+	void renderIBLDiffuse(Texture* hdrTex, Framebuffer* fbo);
+
 	void setClearColor(glm::vec3 color);
 
 	void msaaResolve(Framebuffer* src, Framebuffer* dst);
@@ -50,6 +52,9 @@ public:
 
 	void setRenderMode(RenderMode mode) { mRenderMode = mode; }
 	RenderMode getRenderMode() const { return mRenderMode; }
+
+	void setShadowType(int type) { mShadowType = type; }
+	int getShadowType() const { return mShadowType; }
 
 	void setAmbientColor(glm::vec3 c) { mAmbientColor = c; }
 
@@ -71,5 +76,6 @@ private:
 
 	UBOManager  mUBOManager;
 	RenderMode  mRenderMode{ RenderMode::Fill };
+	int         mShadowType{ 1 };
 	glm::vec3   mAmbientColor{ 0.15f };
 };

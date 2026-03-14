@@ -3,6 +3,7 @@
 
 RenderingPanel::RenderingPanel(
 	int&               renderModeIdx,
+	int&               shadowType,
 	glm::vec3&         clearColor,
 	glm::vec3&         ambientColor,
 	ScreenMaterial*    screenMat,
@@ -10,6 +11,7 @@ RenderingPanel::RenderingPanel(
 	GameCameraControl* cameraControl
 )
 	: mRenderModeIdx(renderModeIdx)
+	, mShadowType(shadowType)
 	, mClearColor(clearColor)
 	, mAmbientColor(ambientColor)
 	, mScreenMat(screenMat)
@@ -22,6 +24,9 @@ void RenderingPanel::onRender() {
 
 	const char* modeNames[] = { "Fill", "Wireframe", "Shadow Only" };
 	ImGui::Combo("Render Mode", &mRenderModeIdx, modeNames, 3);
+
+	const char* shadowNames[] = { "Normal", "PCF", "CSM" };
+	ImGui::Combo("Shadow Type", &mShadowType, shadowNames, 3);
 
 	ImGui::SliderFloat("Exposure",      &mScreenMat->mExposure, 0.0f, 10.0f);
 	ImGui::ColorEdit3("Clear Color",    &mClearColor.x);

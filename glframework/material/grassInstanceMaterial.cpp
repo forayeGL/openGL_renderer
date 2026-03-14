@@ -14,11 +14,11 @@ GrassInstanceMaterial::~GrassInstanceMaterial() {
 }
 
 const char* GrassInstanceMaterial::getVertexShaderPath() const {
-	return "assets/shaders/grassInstance.vert";
+ return "assets/shaders/junior/grassInstance.vert";
 }
 
 const char* GrassInstanceMaterial::getFragmentShaderPath() const {
-	return "assets/shaders/grassInstance.frag";
+ return "assets/shaders/junior/grassInstance.frag";
 }
 
 void GrassInstanceMaterial::applyUniforms(
@@ -57,7 +57,13 @@ void GrassInstanceMaterial::applyUniforms(
 	shader->setFloat("cloudSpeed", mCloudSpeed);
 	shader->setFloat("cloudLerp", mCloudLerp);
 
-	shader->setVector3("cameraPosition", camera->mPosition);
+    shader->setVector3("cameraPosition", camera->mPosition);
+	shader->setVector3("ambientColor", glm::vec3(0.2f, 0.22f, 0.18f));
+	shader->setFloat("time", static_cast<float>(glfwGetTime()));
+
+	shader->setVector3("directionalLight.direction", glm::normalize(glm::vec3(-0.4f, -1.0f, -0.35f)));
+	shader->setVector3("directionalLight.color", glm::vec3(1.0f, 0.95f, 0.82f));
+	shader->setFloat("directionalLight.specularIntensity", 0.35f);
 
 	for (int i = 0; i < pointLights.size(); i++) {
 		shader->setVector3("pointLights[" + std::to_string(i) + "].color", pointLights[i]->mColor);

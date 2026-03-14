@@ -5,6 +5,7 @@
 
 CubeMaterial::CubeMaterial() {
 	mType = MaterialType::CubeMaterial;
+	mDepthWrite = true;
 }
 
 CubeMaterial::~CubeMaterial() {
@@ -12,11 +13,11 @@ CubeMaterial::~CubeMaterial() {
 }
 
 const char* CubeMaterial::getVertexShaderPath() const {
-	return "assets/shaders/cube.vert";
+	return "assets/shaders/junior/cube.vert";
 }
 
 const char* CubeMaterial::getFragmentShaderPath() const {
-	return "assets/shaders/cube.frag";
+	return "assets/shaders/junior/cube.frag";
 }
 
 void CubeMaterial::applyUniforms(
