@@ -66,7 +66,7 @@ float getPointShadowFar(int i) {
     return pointShadowFar23[i - 4];
 }
 
-/// 计算方向光阴影（PCF软阴影）
+/// 计算方向光阴影
 float calcDirectionalShadow(vec3 worldPos, vec3 N) {
     if (getHasDirShadow() == 0) return 1.0;
     vec3 lightDir = normalize(-dirLight.direction.xyz);

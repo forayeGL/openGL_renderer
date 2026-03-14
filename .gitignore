@@ -45,3 +45,6 @@ out/
 
 # Visual Studio local settings
 .vs/
+
+# Local docs\
+docs/
