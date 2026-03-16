@@ -8,6 +8,7 @@ public:
 
 	void updateMatrices();
 	void sortMatrices(glm::mat4 viewMatrix);
+	void beforeDraw();
 
 public:
 	unsigned int				mInstanceCount{ 0 };

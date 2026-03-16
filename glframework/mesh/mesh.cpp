@@ -7,5 +7,8 @@ Mesh::Mesh(Geometry* geometry, Material* material) {
 }
 
 Mesh::~Mesh(){
-
+	if (mOwnsResource) {
+		delete mGeometry;
+		delete mMaterial;
+	}
 }

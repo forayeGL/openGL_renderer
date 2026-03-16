@@ -106,7 +106,7 @@ void Renderer::render(
 	if (dirLight && dirLight->mShadow) {
 		auto* shadow = dirLight->mShadow;
 		if (shadow->mRenderTarget && shadow->mRenderTarget->mDepthAttachment) {
-			shadow->mRenderTarget->mDepthAttachment->setUnit(6);
+			shadow->mRenderTarget->mDepthAttachment->setUnit(5);
 			shadow->mRenderTarget->mDepthAttachment->bind();
 		}
 	}
@@ -114,7 +114,7 @@ void Renderer::render(
 	for (int i = 0; i < (int)pointLights.size() && i < MAX_POINT_SHADOW; i++) {
 		auto* pl = pointLights[i];
 		if (pl->mShadow && pl->mShadow->mRenderTarget && pl->mShadow->mRenderTarget->mDepthAttachment) {
-			int unit = 7 + i;
+			int unit = 6 + i;
 			pl->mShadow->mRenderTarget->mDepthAttachment->setUnit(unit);
 			pl->mShadow->mRenderTarget->mDepthAttachment->bind();
 		}
@@ -190,15 +190,17 @@ void Renderer::renderObject(
 		// Shadow texture samplers
 		// 始终将所有shadow sampler指向非冲突的纹理单元，
 		// 防止samplerCube默认指向unit 0导致类型冲突
-		shader->setInt("shadowMapSampler", 6);
+		shader->setInt("shadowMapSampler", 5);
 		for (int i = 0; i < MAX_POINT_SHADOW; i++) {
-			shader->setInt("pointShadowMaps[" + std::to_string(i) + "]", 7 + i);
+			shader->setInt("pointShadowMaps[" + std::to_string(i) + "]", 6 + i);
 		}
 
 		glBindVertexArray(geometry->getVao());
 
 		if (object->getType() == ObjectType::InstancedMesh) {
 			InstancedMesh* im = (InstancedMesh*)mesh;
+			// 绑定具体实例的VBO并重置顶点属性指针，以防共享Geometry的VAO导致所有实例都使用最后一个VBO的数据
+			im->beforeDraw();
 			glDrawElementsInstanced(GL_TRIANGLES, geometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
 		}
 		else {
@@ -287,17 +289,31 @@ void Renderer::renderDirectionalShadow(
 
 	auto lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
 
-	Shader* shader = ShaderManager::getInstance().getOrCreate(
+	Shader* shaderReg = ShaderManager::getInstance().getOrCreate(
 		"assets/shaders/shadow/shadow.vert",
 		"assets/shaders/shadow/shadow.frag"
 	);
-	shader->begin();
-	shader->setMatrix4x4("lightMatrix", lightMatrix);
+	Shader* shaderInst = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/shadow/shadow_instanced.vert",
+		"assets/shaders/shadow/shadow.frag"
+	);
 
 	for (auto* mesh : objects) {
-		shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+		bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+		Shader* currentShader = isInstanced ? shaderInst : shaderReg;
+
+		currentShader->begin();
+		currentShader->setMatrix4x4("lightMatrix", lightMatrix);
+
 		glBindVertexArray(mesh->mGeometry->getVao());
-		glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		if (isInstanced) {
+			auto* im = static_cast<InstancedMesh*>(mesh);
+			im->beforeDraw();
+			glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+		} else {
+			currentShader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		}
 	}
 }
 
@@ -310,38 +326,51 @@ void Renderer::renderPointShadow(
 
 	auto lightMatrices = shadow->getLightMatrices(pointLight->getPosition());
 
-	Shader* shader = ShaderManager::getInstance().getOrCreate(
+	Shader* shaderReg = ShaderManager::getInstance().getOrCreate(
 		"assets/shaders/shadow/shadowDistance.vert",
 		"assets/shaders/shadow/shadowDistance.frag"
 	);
-
-	shader->begin();
-	shader->setFloat("far", shadow->mCamera->mFar);
-	shader->setVector3("lightPosition", pointLight->getPosition());
+	Shader* shaderInst = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/shadow/shadowDistance_instanced.vert",
+		"assets/shaders/shadow/shadowDistance.frag"
+	);
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 
-	for (int face = 0; face < 6; face++) {
+	for (int i = 0; i < 6; i++) {
 		glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
 		glFramebufferTexture2D(
 			GL_FRAMEBUFFER,
 			GL_DEPTH_ATTACHMENT,
-			GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+			GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
 			fbo->mDepthAttachment->getTexture(),
 			0
 		);
+
 		glViewport(0, 0, fbo->mWidth, fbo->mHeight);
-		glClear(GL_DEPTH_BUFFER_BIT);
-
-		shader->setMatrix4x4("lightMatrix", lightMatrices[face]);
-
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		
 		for (auto* mesh : objects) {
-			shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+			bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+			Shader* currentShader = isInstanced ? shaderInst : shaderReg;
+
+			currentShader->begin();
+			currentShader->setMatrix4x4("lightMatrix", lightMatrices[i]);
+			currentShader->setFloat("far", shadow->mCamera->mFar);
+			currentShader->setVector3("lightPosition", pointLight->getPosition());
+
 			glBindVertexArray(mesh->mGeometry->getVao());
-			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+			if (isInstanced) {
+				auto* im = static_cast<InstancedMesh*>(mesh);
+				im->beforeDraw();
+				glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+			} else {
+				currentShader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+				glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+			}
 		}
 	}
 }

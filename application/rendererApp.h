@@ -90,4 +90,8 @@ private:
 	GLuint mIrradianceMap{ 0 };    ///< 辐照度贴图
 	GLuint mPrefilteredMap{ 0 };   ///< 预滤波环境贴图
 	GLuint mBRDFLUT{ 0 };          ///< BRDF积分LUT
+
+	// Smart point tracking for resources (to avoid memory leaks)
+	std::vector<std::shared_ptr<Geometry>> mGeometries;
+	std::vector<std::shared_ptr<Material>> mMaterials;
 };

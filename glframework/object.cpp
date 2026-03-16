@@ -5,7 +5,10 @@ Object::Object() {
 }
 
 Object::~Object() {
-
+	for(auto* child : mChildren) {
+		delete child;
+	}
+	mChildren.clear();
 }
 
 void Object::setPosition(glm::vec3 pos) {

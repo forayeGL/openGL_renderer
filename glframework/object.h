@@ -11,8 +11,8 @@ enum class ObjectType {
 class Object {
 public:
 	Object();
-	~Object();
-	
+	virtual ~Object();
+
 	void setPosition(glm::vec3 pos);
 
 	//ÔöÁ¿Ðý×ª

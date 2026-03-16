@@ -2,6 +2,7 @@
 #include "../../shader_manager.h"
 #include "../../scene.h"
 #include "../../material/advanced/pbrMaterial.h"
+#include "../../mesh/instancedMesh.h"
 
 GBufferPass::GBufferPass() = default;
 GBufferPass::~GBufferPass() = default;
@@ -57,13 +58,6 @@ void GBufferPass::execute(const RenderContext& ctx) {
 	glDisable(GL_BLEND);
 	glDisable(GL_STENCIL_TEST);
 
-	// 获取GBuffer填充Shader
-	Shader* shader = ShaderManager::getInstance().getOrCreate(
-		"assets/shaders/deferred/gbuffer.vert",
-		"assets/shaders/deferred/gbuffer.frag"
-	);
-	shader->begin();
-
 	const auto emptyLights = std::vector<PointLight*>{};
 	const auto& lights = ctx.pointLights ? *ctx.pointLights : emptyLights;
 
@@ -83,11 +77,27 @@ void GBufferPass::execute(const RenderContext& ctx) {
 			continue;
 		}
 
+		bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+
+		// 获取合适的GBuffer填充Shader
+		Shader* shader = ShaderManager::getInstance().getOrCreate(
+			isInstanced ? "assets/shaders/deferred/gbuffer_instanced.vert" : "assets/shaders/deferred/gbuffer.vert",
+			"assets/shaders/deferred/gbuffer.frag"
+		);
+		shader->begin();
+
 		// PBR材质的applyUniforms会设置GBuffer shader所需的所有uniform
 		material->applyUniforms(shader, mesh, ctx.camera, lights);
 
 		glBindVertexArray(mesh->mGeometry->getVao());
-		glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+
+		if (isInstanced) {
+			auto* im = static_cast<InstancedMesh*>(mesh);
+			im->beforeDraw();
+			glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+		} else {
+			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		}
 	}
 
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

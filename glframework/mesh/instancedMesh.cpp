@@ -36,6 +36,15 @@ void InstancedMesh::updateMatrices() {
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+void InstancedMesh::beforeDraw() {
+	glBindBuffer(GL_ARRAY_BUFFER, mMatrixVbo);
+	for (int i = 0; i < 4; i++) {
+		glEnableVertexAttribArray(4 + i);
+		glVertexAttribPointer(4 + i, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)(sizeof(float) * i * 4));
+		glVertexAttribDivisor(4 + i, 1);
+	}
+}
+
 void InstancedMesh::sortMatrices(glm::mat4 viewMatrix) {
 	std::sort(
 		mInstanceMatrices.begin(),

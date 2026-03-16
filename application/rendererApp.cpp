@@ -29,6 +29,20 @@
 
 #include <algorithm>
 
+namespace {
+	template<typename T>
+	T* trackMaterial(std::vector<std::shared_ptr<Material>>& pool, T* mat) {
+		if(mat) pool.push_back(std::shared_ptr<Material>(mat));
+		return mat;
+	}
+
+	template<typename T>
+	T* trackGeometry(std::vector<std::shared_ptr<Geometry>>& pool, T* geo) {
+		if(geo) pool.push_back(std::shared_ptr<Geometry>(geo));
+		return geo;
+	}
+}
+
 RendererApp* RendererApp::sInstance = nullptr;
 
 RendererApp::RendererApp(int width, int height)
@@ -62,6 +76,7 @@ bool RendererApp::init() {
 
 	prepareCamera();
 	prepareScene();
+	//prepareDefferedDemo();
 	//prepareForwardScene();
 	//prepareForwardDemo();
 	buildGuiPanels();
@@ -103,6 +118,8 @@ void RendererApp::shutdown() {
 	}
 	mPointLights.clear();
 	mDynamicObjects.clear();
+	mGeometries.clear();
+	mMaterials.clear();
 
 	glApp->destroy();
 }
@@ -114,6 +131,11 @@ void RendererApp::prepareScene() {
 		deferredPipeline->init(mWidth, mHeight);
 		mPipeline = std::move(deferredPipeline);
 	}
+	/*if (!mPipeline) {
+		auto defaultPipeline = std::make_unique<DefaultRenderPipeline>();
+		defaultPipeline->init(mWidth, mHeight);
+		mPipeline = std::move(defaultPipeline);
+	}*/
 	mMainScene = std::make_unique<Scene>();
 	mPostScene = std::make_unique<Scene>();
 
@@ -132,7 +154,7 @@ void RendererApp::prepareScene() {
 
 	for (int m = 0; m < MAT_COUNT; ++m) {
 		std::string base = std::string("assets/learnResource/textures/pbr/") + matDirs[m] + "/";
-		auto* mat = new PbrMaterial();
+		auto* mat = trackMaterial(mMaterials, new PbrMaterial());
 		mat->mAlbedo    = Texture::createTexture((base + "albedo.png").c_str(), 0);
 		mat->mAO        = Texture::createTexture((base + "ao.png").c_str(), 0);
 		mat->mMetallic  = Texture::createTexture((base + "metallic.png").c_str(), 0);
@@ -140,12 +162,28 @@ void RendererApp::prepareScene() {
 		mat->mRoughness = Texture::createTexture((base + "roughness.png").c_str(), 0);
 		mat->mUseNormalMap = true;
 		mat->mUseIBL       = true;
+		mat->mInstanced    = true; // Add this line so default pipeline uses instanced shader
+		mat->mBRDFLUT = mBRDFLUT;
+		mat->mIrradianceIndirect = mIrradianceMap;
+		mat->mPrefilteredMap = mPrefilteredMap;
+
 		pbrMats[m] = mat;
 	}
 
-	// --- 超大地面 ---
-	auto planeGeo = Geometry::createPlane(300.0f, 300.0f);
-	auto planeMesh = new Mesh(planeGeo, pbrMats[1]); // grass材质
+	// --- 超大地面（单独一个非实例化材质） ---
+	auto* planeMat = trackMaterial(mMaterials, new PbrMaterial());
+	std::string planeBase = "assets/learnResource/textures/pbr/grass/";
+	planeMat->mAlbedo = Texture::createTexture((planeBase + "albedo.png").c_str(), 0);
+	planeMat->mAO = Texture::createTexture((planeBase + "ao.png").c_str(), 0);
+	planeMat->mMetallic = Texture::createTexture((planeBase + "metallic.png").c_str(), 0);
+	planeMat->mNormal = Texture::createTexture((planeBase + "normal.png").c_str(), 0);
+	planeMat->mRoughness = Texture::createTexture((planeBase + "roughness.png").c_str(), 0);
+	planeMat->mUseNormalMap = true;
+	planeMat->mUseIBL = false;
+	planeMat->mInstanced = false;
+
+	auto planeGeo = trackGeometry(mGeometries, Geometry::createPlane(300.0f, 300.0f));
+	auto planeMesh = new Mesh(planeGeo, planeMat); // 独立材质
 	planeMesh->setAngleX(-90.0f);
 	planeMesh->setPosition(glm::vec3(0.0f, -2.0f, 0.0f));
 	mMainScene->addChild(planeMesh);
@@ -156,7 +194,16 @@ void RendererApp::prepareScene() {
 	constexpr float RADIUS    = 1.2f;
 	const float halfExtent = (GRID_SIZE - 1) * SPACING * 0.5f;
 
-	auto sharedSphereGeo = Geometry::createSphere(RADIUS);
+	auto sharedSphereGeo = trackGeometry(mGeometries, Geometry::createSphere(RADIUS));
+
+	// Initialize instanced mesh arrays
+	std::vector<InstancedMesh*> instancedSpheres(MAT_COUNT);
+	for (int i = 0; i < MAT_COUNT; ++i) {
+		unsigned int count = (GRID_SIZE * GRID_SIZE) / MAT_COUNT + 1; // max possible
+		instancedSpheres[i] = new InstancedMesh(sharedSphereGeo, pbrMats[i], count);
+		// Reset count to use it as index
+		instancedSpheres[i]->mInstanceCount = 0; 
+	}
 
 	for (int row = 0; row < GRID_SIZE; ++row) {
 		for (int col = 0; col < GRID_SIZE; ++col) {
@@ -165,11 +212,15 @@ void RendererApp::prepareScene() {
 			float z = row * SPACING - halfExtent;
 			float y = 0.0f;
 
-			auto* sphere = new Mesh(sharedSphereGeo, pbrMats[matIdx]);
-			sphere->setPosition(glm::vec3(x, y, z));
-			mMainScene->addChild(sphere);
-			mDynamicObjects.push_back(sphere);
+			InstancedMesh* im = instancedSpheres[matIdx];
+			im->mInstanceMatrices[im->mInstanceCount++] = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
 		}
+	}
+
+	for (int i = 0; i < MAT_COUNT; ++i) {
+		instancedSpheres[i]->updateMatrices();
+		mMainScene->addChild(instancedSpheres[i]);
+		mDynamicObjects.push_back(instancedSpheres[i]);
 	}
 
 	// 天空盒
@@ -212,22 +263,22 @@ void RendererApp::prepareScene() {
 	// =====================================================================
 	glm::vec3 lightPositions[] = {
 		glm::vec3(-70.0f, 15.0f, -70.0f),
-		glm::vec3( 70.0f, 15.0f, -70.0f),
+		glm::vec3(70.0f, 15.0f, -70.0f),
 		glm::vec3(-70.0f, 15.0f,  70.0f),
-		glm::vec3( 70.0f, 15.0f,  70.0f),
-		glm::vec3(  0.0f, 20.0f,   0.0f),
+		glm::vec3(70.0f, 15.0f,  70.0f),
+		glm::vec3(0.0f, 20.0f,   0.0f),
 		glm::vec3(-40.0f, 12.0f,   0.0f),
-		glm::vec3( 40.0f, 12.0f,   0.0f),
-		glm::vec3(  0.0f, 12.0f,  40.0f),
+		glm::vec3(40.0f, 12.0f,   0.0f),
+		glm::vec3(0.0f, 12.0f,  40.0f),
 	};
 	glm::vec3 lightColors[] = {
 		glm::vec3(200.0f,  50.0f,  50.0f),   // 红
-		glm::vec3( 50.0f, 200.0f,  50.0f),   // 绿
-		glm::vec3( 50.0f,  50.0f, 200.0f),   // 蓝
+		glm::vec3(50.0f, 200.0f,  50.0f),   // 绿
+		glm::vec3(50.0f,  50.0f, 200.0f),   // 蓝
 		glm::vec3(200.0f, 200.0f,  50.0f),   // 黄
 		glm::vec3(300.0f, 300.0f, 300.0f),   // 白（中心，最亮）
 		glm::vec3(200.0f,  50.0f, 200.0f),   // 品红
-		glm::vec3( 50.0f, 200.0f, 200.0f),   // 青
+		glm::vec3(50.0f, 200.0f, 200.0f),   // 青
 		glm::vec3(200.0f, 150.0f,  50.0f),   // 橙
 	};
 	for (int i = 0; i < 8; ++i) {
@@ -261,13 +312,118 @@ void RendererApp::prepareForwardScene()
 
 	for (int m = 0; m < MAT_COUNT; ++m) {
 		std::string base = std::string("assets/learnResource/textures/pbr/") + matDirs[m] + "/";
-		auto* mat = new PbrMaterial();
+		auto* mat = trackMaterial(mMaterials, new PbrMaterial());
 		mat->mAlbedo = Texture::createTexture((base + "albedo.png").c_str(), 0);
 		mat->mAO = Texture::createTexture((base + "ao.png").c_str(), 0);
 		mat->mMetallic = Texture::createTexture((base + "metallic.png").c_str(), 0);
 		mat->mNormal = Texture::createTexture((base + "normal.png").c_str(), 0);
 		mat->mRoughness = Texture::createTexture((base + "roughness.png").c_str(), 0);
-      mat->mIrradianceIndirect = mIrradianceMap;
+		mat->mIrradianceIndirect = mIrradianceMap;
+		mat->mPrefilteredMap = mPrefilteredMap;
+		mat->mBRDFLUT = mBRDFLUT;
+		mat->mUseNormalMap = true;
+		mat->mUseIBL = true;
+		pbrMats[m] = mat;
+	}
+
+	// 地面 —— 使用PBR材质
+	auto planeGeo = trackGeometry(mGeometries, Geometry::createPlane(50.0f, 50.0f));
+
+	auto planeMesh = new Mesh(planeGeo, pbrMats[3]);
+	planeMesh->setAngleX(-90.0f);
+	planeMesh->setPosition(glm::vec3(0.0f, -2.0f, 0.0f));
+	mMainScene->addChild(planeMesh);
+
+
+	// 初始球体 —— 使用PBR材质
+	auto sphereGeo = trackGeometry(mGeometries, Geometry::createSphere(1.0f));
+	auto sphereMesh = new Mesh(sphereGeo, pbrMats[0]);
+	sphereMesh->setPosition(glm::vec3(0.0f, 0.0f, 0.0f));
+	mMainScene->addChild(sphereMesh);
+	mDynamicObjects.push_back(sphereMesh);
+
+	// 初始立方体 —— 使用PBR材质
+	auto boxGeo = trackGeometry(mGeometries, Geometry::createBox(1.5f));
+	auto boxMat = trackMaterial(mMaterials, new PbrMaterial());
+	auto boxMesh = new Mesh(boxGeo, pbrMats[2]);
+	boxMesh->setPosition(glm::vec3(3.0f, 0.0f, 0.0f));
+	mMainScene->addChild(boxMesh);
+	mDynamicObjects.push_back(boxMesh);
+
+	// 天空盒
+	auto skyGeo = trackGeometry(mGeometries, Geometry::createBox(1.0f));
+	auto skyMat = trackMaterial(mMaterials, new CubeMaterial());
+	skyMat->mDiffuse = Texture::createExrTexture("assets/textures/pbr/qwantani_dusk_1_4k.exr");
+	auto skyMesh = new Mesh(skyGeo, skyMat);
+	mMainScene->addChild(skyMesh);
+
+	// 后处理屏幕Pass
+	auto sgeo = trackGeometry(mGeometries, Geometry::createScreenPlane());
+	mScreenMat = trackMaterial(mMaterials, new ScreenMaterial());
+	mScreenMat->mScreenTexture = mPipeline->getResolveColorAttachment();
+	auto smesh = new Mesh(sgeo, mScreenMat);
+	mPostScene->addChild(smesh);
+
+	// 初始化RenderContext中不随帧变化的字段
+	mRenderCtx.clearColor = glm::vec3(0.0f);
+	mRenderCtx.ambientColor = glm::vec3(0.15f);
+	mRenderCtx.renderModeIdx = 0;
+
+	// 设置IBL资源到RenderContext
+	mRenderCtx.iblIrradianceMap = mIrradianceMap;
+	mRenderCtx.iblPrefilteredMap = mPrefilteredMap;
+	mRenderCtx.iblBRDFLUT = mBRDFLUT;
+
+	// 方向光
+	mDirLight = new DirectionalLight();
+	mDirLight->setPosition(glm::vec3(10.0f, 20.0f, 10.0f));
+	mDirLight->setAngleX(-60.0f);
+	mDirLight->setAngleY(30.0f);
+	mDirLight->mColor = glm::vec3(1.0f);
+	mDirLight->mIntensity = 1.5f;
+	mDirLight->mSpecularIntensity = 0.5f;
+
+	// 点光源
+	glm::vec3 lightPositions[] = {
+		glm::vec3(-5.0f,  5.0f, 5.0f),
+		glm::vec3(5.0f,  5.0f, 5.0f),
+	};
+	glm::vec3 lightColors[] = {
+		glm::vec3(50.0f, 50.0f, 50.0f),
+		glm::vec3(50.0f, 50.0f, 50.0f),
+	};
+	for (int i = 0; i < 2; i++) {
+		auto pointLight = new PointLight();
+		pointLight->setPosition(lightPositions[i]);
+		pointLight->mColor = lightColors[i];
+		mPointLights.push_back(pointLight);
+	}
+}
+
+void RendererApp::prepareDefferedDemo()
+{
+	mPipeline = std::make_unique<DeferredRenderPipeline>();
+	mPipeline->init(mWidth, mHeight);
+
+	mMainScene = std::make_unique<Scene>();
+	mPostScene = std::make_unique<Scene>();
+
+	// 初始化IBL资源
+	prepareIBL();
+
+	const char* matDirs[] = { "gold", "grass", "plastic", "rusted_iron", "wall" };
+	constexpr int MAT_COUNT = 5;
+	PbrMaterial* pbrMats[MAT_COUNT]{};
+
+	for (int m = 0; m < MAT_COUNT; ++m) {
+		std::string base = std::string("assets/learnResource/textures/pbr/") + matDirs[m] + "/";
+		auto* mat = trackMaterial(mMaterials, new PbrMaterial());
+		mat->mAlbedo = Texture::createTexture((base + "albedo.png").c_str(), 0);
+		mat->mAO = Texture::createTexture((base + "ao.png").c_str(), 0);
+		mat->mMetallic = Texture::createTexture((base + "metallic.png").c_str(), 0);
+		mat->mNormal = Texture::createTexture((base + "normal.png").c_str(), 0);
+		mat->mRoughness = Texture::createTexture((base + "roughness.png").c_str(), 0);
+		mat->mIrradianceIndirect = mIrradianceMap;
 		mat->mPrefilteredMap = mPrefilteredMap;
 		mat->mBRDFLUT = mBRDFLUT;
 		mat->mUseNormalMap = true;
@@ -347,85 +503,117 @@ void RendererApp::prepareForwardScene()
 		pointLight->mColor = lightColors[i];
 		mPointLights.push_back(pointLight);
 	}
-}
-
-void RendererApp::prepareDefferedDemo()
-{
-	
-
+	// 将IBL资源传递给延迟管线
+	auto* deferredPL = dynamic_cast<DeferredRenderPipeline*>(mPipeline.get());
+	if (deferredPL) {
+		deferredPL->setIBLResources(mIrradianceMap, mPrefilteredMap, mBRDFLUT);
+	}
 
 }
 
 void RendererApp::prepareForwardDemo()
 {
-	mPipeline = std::make_unique<DefaultRenderPipeline>();
-	mPipeline->init(mWidth, mHeight);
-
+	// 如果没有注入自定义管线，则默认使用延迟渲染管线
+	if (!mPipeline) {
+		auto defaultPipeline = std::make_unique<DefaultRenderPipeline>();
+		defaultPipeline->init(mWidth, mHeight);
+		mPipeline = std::move(defaultPipeline);
+	}
 	mMainScene = std::make_unique<Scene>();
 	mPostScene = std::make_unique<Scene>();
 
- const int rNum = 50;
-	const int cNum = 50;
-	const int instanceCount = rNum * cNum;
+	// 初始化IBL资源
+	prepareIBL();
 
-	Object* grassModel = AssimpInstanceLoader::load("assets/grassInstanceDemo/obj/grassNew.obj", instanceCount);
-	if (grassModel) {
-		std::vector<InstancedMesh*> instancedMeshes;
-		std::function<void(Object*)> collectInstancedMeshes = [&](Object* obj) {
-			if (!obj) return;
-			if (obj->getType() == ObjectType::InstancedMesh) {
-				instancedMeshes.push_back(static_cast<InstancedMesh*>(obj));
-			}
-			for (auto* child : obj->getChildren()) {
-				collectInstancedMeshes(child);
-			}
-		};
-		collectInstancedMeshes(grassModel);
+	// =====================================================================
+	// 性能测试场景：20×20 = 400个球体，5种PBR材质循环分配
+	// 场景范围 200×200，球体间距10，半径1.2
+	// =====================================================================
 
-		std::srand(static_cast<unsigned int>(glfwGetTime()));
-		const float spacing = 0.35f;
-		const glm::vec3 origin(
-			-0.5f * spacing * static_cast<float>(rNum),
-			0.0f,
-			-0.5f * spacing * static_cast<float>(cNum)
-		);
+	// --- 创建5种PBR材质（gold / grass / plastic / rusted_iron / wall）---
+	const char* matDirs[] = { "gold", "grass", "plastic", "rusted_iron", "wall" };
+	constexpr int MAT_COUNT = 5;
+	PbrMaterial* pbrMats[MAT_COUNT]{};
 
-		for (auto* mesh : instancedMeshes) {
-			for (int i = 0; i < instanceCount; ++i) {
-				const int r = i / cNum;
-				const int c = i % cNum;
-
-				const float jitterX = (static_cast<float>(std::rand() % 1000) / 1000.0f - 0.5f) * 0.08f;
-				const float jitterZ = (static_cast<float>(std::rand() % 1000) / 1000.0f - 0.5f) * 0.08f;
-				const float randomAngle = glm::radians(static_cast<float>(std::rand() % 360));
-				const float randomScale = 0.75f + static_cast<float>(std::rand() % 1000) / 1000.0f * 0.55f;
-
-				glm::mat4 translate = glm::translate(
-					glm::mat4(1.0f),
-					origin + glm::vec3(r * spacing + jitterX, 0.0f, c * spacing + jitterZ)
-				);
-				glm::mat4 rotate = glm::rotate(glm::mat4(1.0f), randomAngle, glm::vec3(0.0f, 1.0f, 0.0f));
-				glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(randomScale));
-
-				mesh->mInstanceMatrices[i] = translate * rotate * scale;
-			}
-			mesh->updateMatrices();
-
-			auto* grassMat = new GrassInstanceMaterial();
-			grassMat->mDiffuse = Texture::createTexture("assets/grassInstanceDemo/Textures/GRASS.png", 0);
-			grassMat->mOpacityMask = Texture::createTexture("assets/grassInstanceDemo/Textures/grass/grassMask.png", 1);
-			grassMat->mCloudMask = Texture::createTexture("assets/grassInstanceDemo/Textures/cloud/CLOUD.png", 2);
-			grassMat->mBlend = true;
-			grassMat->mDepthWrite = false;
-			grassMat->mWindScale = 0.14f;
-			grassMat->mPhaseScale = 1.6f;
-			grassMat->mCloudUVScale = 18.0f;
-			grassMat->mCloudSpeed = 0.015f;
-			mesh->mMaterial = grassMat;
-		}
-
-		mMainScene->addChild(grassModel);
+	for (int m = 0; m < MAT_COUNT; ++m) {
+		std::string base = std::string("assets/learnResource/textures/pbr/") + matDirs[m] + "/";
+		auto* mat = trackMaterial(mMaterials, new PbrMaterial());
+		mat->mAlbedo = Texture::createTexture((base + "albedo.png").c_str(), 0);
+		mat->mAO = Texture::createTexture((base + "ao.png").c_str(), 0);
+		mat->mMetallic = Texture::createTexture((base + "metallic.png").c_str(), 0);
+		mat->mNormal = Texture::createTexture((base + "normal.png").c_str(), 0);
+		mat->mRoughness = Texture::createTexture((base + "roughness.png").c_str(), 0);
+		mat->mUseNormalMap = true;
+		mat->mUseIBL = true;
+		mat->mBRDFLUT = mBRDFLUT;
+		mat->mIrradianceIndirect = mIrradianceMap;
+		mat->mPrefilteredMap = mPrefilteredMap;
+		mat->mInstanced = true;  // Mark specifically for instanced rendering
+		pbrMats[m] = mat;
 	}
+
+	// --- 超大地面（单独一个材质，不开启instanced） ---
+	auto* planeMat = trackMaterial(mMaterials, new PbrMaterial());
+	std::string planeBase = "assets/learnResource/textures/pbr/grass/";
+	planeMat->mAlbedo = Texture::createTexture((planeBase + "albedo.png").c_str(), 0);
+	planeMat->mAO = Texture::createTexture((planeBase + "ao.png").c_str(), 0);
+	planeMat->mMetallic = Texture::createTexture((planeBase + "metallic.png").c_str(), 0);
+	planeMat->mNormal = Texture::createTexture((planeBase + "normal.png").c_str(), 0);
+	planeMat->mRoughness = Texture::createTexture((planeBase + "roughness.png").c_str(), 0);
+	planeMat->mUseNormalMap = true;
+	planeMat->mUseIBL = true;
+	planeMat->mBRDFLUT = mBRDFLUT;
+	planeMat->mIrradianceIndirect = mIrradianceMap;
+	planeMat->mPrefilteredMap = mPrefilteredMap;
+	planeMat->mInstanced = false;
+
+	auto planeGeo = trackGeometry(mGeometries, Geometry::createPlane(300.0f, 300.0f));
+	auto planeMesh = new Mesh(planeGeo, planeMat); // 独立材质
+	planeMesh->setAngleX(-90.0f);
+	planeMesh->setPosition(glm::vec3(0.0f, -2.0f, 0.0f));
+	mMainScene->addChild(planeMesh);
+
+	// --- 生成 20×20 球体网格 ---
+	constexpr int   GRID_SIZE = 20;
+	constexpr float SPACING = 10.0f;
+	constexpr float RADIUS = 1.2f;
+	const float halfExtent = (GRID_SIZE - 1) * SPACING * 0.5f;
+
+	auto sharedSphereGeo = trackGeometry(mGeometries, Geometry::createSphere(RADIUS));
+
+	// Initialize instanced mesh arrays
+	std::vector<InstancedMesh*> instancedSpheres(MAT_COUNT);
+	for (int i = 0; i < MAT_COUNT; ++i) {
+		unsigned int count = (GRID_SIZE * GRID_SIZE) / MAT_COUNT + 1; // max possible
+		instancedSpheres[i] = new InstancedMesh(sharedSphereGeo, pbrMats[i], count);
+		// Reset count to use it as index
+		instancedSpheres[i]->mInstanceCount = 0; 
+	}
+
+	for (int row = 0; row < GRID_SIZE; ++row) {
+		for (int col = 0; col < GRID_SIZE; ++col) {
+			int matIdx = (row * GRID_SIZE + col) % MAT_COUNT;
+			float x = col * SPACING - halfExtent;
+			float z = row * SPACING - halfExtent;
+			float y = 0.0f;
+
+			InstancedMesh* im = instancedSpheres[matIdx];
+			im->mInstanceMatrices[im->mInstanceCount++] = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
+		}
+	}
+
+	for (int i = 0; i < MAT_COUNT; ++i) {
+		instancedSpheres[i]->updateMatrices();
+		mMainScene->addChild(instancedSpheres[i]);
+		mDynamicObjects.push_back(instancedSpheres[i]);
+	}
+
+	// 天空盒
+	auto skyGeo = Geometry::createBox(1.0f);
+	auto skyMat = new CubeMaterial();
+	skyMat->mDiffuse = Texture::createExrTexture("assets/textures/pbr/qwantani_dusk_1_4k.exr");
+	auto skyMesh = new Mesh(skyGeo, skyMat);
+	mMainScene->addChild(skyMesh);
 
 	// 后处理屏幕Pass
 	auto sgeo = Geometry::createScreenPlane();
@@ -434,22 +622,56 @@ void RendererApp::prepareForwardDemo()
 	auto smesh = new Mesh(sgeo, mScreenMat);
 	mPostScene->addChild(smesh);
 
-	mRenderCtx.clearColor = glm::vec3(0.52f, 0.74f, 0.95f);
-	mRenderCtx.ambientColor = glm::vec3(0.22f, 0.26f, 0.2f);
+	// 初始化RenderContext中不随帧变化的字段
+	mRenderCtx.clearColor = glm::vec3(0.0f);
+	mRenderCtx.ambientColor = glm::vec3(0.2f);
 	mRenderCtx.renderModeIdx = 0;
 
-	mDirLight = new DirectionalLight();
-	mDirLight->setPosition(glm::vec3(30.0f, 40.0f, 20.0f));
-	mDirLight->setAngleX(-50.0f);
-	mDirLight->setAngleY(35.0f);
-	mDirLight->mColor = glm::vec3(1.0f, 0.95f, 0.82f);
-	mDirLight->mIntensity = 1.8f;
-	mDirLight->mSpecularIntensity = 0.45f;
+	// 设置IBL资源到RenderContext
+	mRenderCtx.iblIrradianceMap = mIrradianceMap;
+	mRenderCtx.iblPrefilteredMap = mPrefilteredMap;
+	mRenderCtx.iblBRDFLUT = mBRDFLUT;
 
-	auto* pointLight = new PointLight();
-	pointLight->setPosition(glm::vec3(0.0f, 4.0f, 0.0f));
-	pointLight->mColor = glm::vec3(16.0f, 18.0f, 12.0f);
-	mPointLights.push_back(pointLight);
+	// =====================================================================
+	// 方向光 —— 高强度、低角度，产生明显的阴影和高光
+	// =====================================================================
+	mDirLight = new DirectionalLight();
+	mDirLight->setPosition(glm::vec3(50.0f, 80.0f, 50.0f));
+	mDirLight->setAngleX(-45.0f);
+	mDirLight->setAngleY(45.0f);
+	mDirLight->mColor = glm::vec3(1.0f, 0.95f, 0.85f);  // 暖白色
+	mDirLight->mIntensity = 3.0f;
+	mDirLight->mSpecularIntensity = 1.0f;
+
+	// =====================================================================
+	// 8个点光源 —— 分布在场景四周和中心，彩色高亮度
+	// =====================================================================
+	glm::vec3 lightPositions[] = {
+		glm::vec3(-70.0f, 15.0f, -70.0f),
+		glm::vec3(70.0f, 15.0f, -70.0f),
+		glm::vec3(-70.0f, 15.0f,  70.0f),
+		glm::vec3(70.0f, 15.0f,  70.0f),
+		glm::vec3(0.0f, 20.0f,   0.0f),
+		glm::vec3(-40.0f, 12.0f,   0.0f),
+		glm::vec3(40.0f, 12.0f,   0.0f),
+		glm::vec3(0.0f, 12.0f,  40.0f),
+	};
+	glm::vec3 lightColors[] = {
+		glm::vec3(200.0f,  50.0f,  50.0f),   // 红
+		glm::vec3(50.0f, 200.0f,  50.0f),   // 绿
+		glm::vec3(50.0f,  50.0f, 200.0f),   // 蓝
+		glm::vec3(200.0f, 200.0f,  50.0f),   // 黄
+		glm::vec3(300.0f, 300.0f, 300.0f),   // 白（中心，最亮）
+		glm::vec3(200.0f,  50.0f, 200.0f),   // 品红
+		glm::vec3(50.0f, 200.0f, 200.0f),   // 青
+		glm::vec3(200.0f, 150.0f,  50.0f),   // 橙
+	};
+	for (int i = 0; i < 8; ++i) {
+		auto* pointLight = new PointLight();
+		pointLight->setPosition(lightPositions[i]);
+		pointLight->mColor = lightColors[i];
+		mPointLights.push_back(pointLight);
+	}
 }
 
 void RendererApp::prepareIBL() {
@@ -537,7 +759,7 @@ void RendererApp::addObject(const std::string& type) {
 	Mesh* mesh = nullptr;
 	// 使用PBR材质创建新物体
 
-	auto stoneMat = new PbrMaterial();
+	auto stoneMat = trackMaterial(mMaterials, new PbrMaterial());
 	stoneMat->mAlbedo = Texture::createTexture("assets/textures/pbr/slab_tiles_diff_2k.jpg", 0);
 	stoneMat->mUseNormalMap = true;
 	stoneMat->mNormal = Texture::createTexture("assets/textures/pbr/slab_tiles_nor_2k.jpg", 0);
@@ -547,10 +769,10 @@ void RendererApp::addObject(const std::string& type) {
 	stoneMat->mBRDFLUT = mBRDFLUT;
 	stoneMat->mUseIBL = true;
 	if (type == "cube") {
-		mesh = new Mesh(Geometry::createBox(1.0f), stoneMat);
+		mesh = new Mesh(trackGeometry(mGeometries, Geometry::createBox(1.0f)), stoneMat);
 	}
 	else {
-		mesh = new Mesh(Geometry::createSphere(0.8f), stoneMat);
+		mesh = new Mesh(trackGeometry(mGeometries, Geometry::createSphere(0.8f)), stoneMat);
 	}
 
 	float x = (float)(rand() % 20 - 10);

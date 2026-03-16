@@ -14,7 +14,7 @@ PbrMaterial::~PbrMaterial() {
 }
 
 const char* PbrMaterial::getVertexShaderPath() const {
-	return "assets/shaders/advanced/pbr/pbr.vert";
+	return mInstanced ? "assets/shaders/advanced/pbr/pbr_instanced.vert" : "assets/shaders/advanced/pbr/pbr.vert";
 }
 
 const char* PbrMaterial::getFragmentShaderPath() const {
@@ -71,25 +71,25 @@ void PbrMaterial::applyUniforms(
 	}
 
 	// IBL纹理
-	// 使用纹理单元13-15，避免与阴影贴图(unit 6-12)冲突
+	// 使用纹理单元14-16，避免与阴影贴图(unit 5-13)冲突
 	// 始终设置sampler uniform指向独立单元，防止samplerCube默认指向
 	// unit 0（2D纹理）导致类型不匹配，RenderDoc会因此崩溃
-	shader->setInt("irradianceMap", 13);
-	shader->setInt("prefilteredMap", 14);
-	shader->setInt("brdfLUT", 15);
+	shader->setInt("irradianceMap", 14);
+	shader->setInt("prefilteredMap", 15);
+	shader->setInt("brdfLUT", 16);
 
 	// 始终绑定IBL纹理（如果句柄有效），确保samplerCube/sampler2D
 	// 类型与实际纹理类型匹配，即使useIBL=false也不会触发RenderDoc校验错误
 	if (mIrradianceIndirect) {
-		glActiveTexture(GL_TEXTURE13);
+		glActiveTexture(GL_TEXTURE14);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, mIrradianceIndirect);
 	}
 	if (mPrefilteredMap) {
-		glActiveTexture(GL_TEXTURE14);
+		glActiveTexture(GL_TEXTURE15);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, mPrefilteredMap);
 	}
 	if (mBRDFLUT) {
-		glActiveTexture(GL_TEXTURE15);
+		glActiveTexture(GL_TEXTURE16);
 		glBindTexture(GL_TEXTURE_2D, mBRDFLUT);
 	}
 

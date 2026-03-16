@@ -112,7 +112,9 @@ InstancedMesh* AssimpInstanceLoader::processMesh(aiMesh* aimesh, const aiScene* 
 		material->mDiffuse = Texture::createTexture("assets/textures/defaultTexture.jpg", 0);
 	}
 	
-	return new InstancedMesh(geometry ,material,instanceCount);
+	auto mesh = new InstancedMesh(geometry, material, instanceCount);
+	mesh->mOwnsResource = true;
+	return mesh;
 }
 
 

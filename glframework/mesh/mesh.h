@@ -11,4 +11,5 @@ public:
 public:
 	Geometry* mGeometry{ nullptr };
 	Material* mMaterial{ nullptr };
+	bool mOwnsResource{ false };
 };

@@ -1,5 +1,6 @@
 #include "shadow_pass.h"
 #include "../../mesh/mesh.h"
+#include "../../mesh/instancedMesh.h"
 #include "../../shader_manager.h"
 #include "../../light/shadow/directionalLightShadow.h"
 #include "../../light/shadow/pointLightShadow.h"
@@ -43,19 +44,32 @@ void ShadowPass::renderDirectionalShadow(const RenderContext& ctx) {
 	// 计算光源空间变换矩阵
 	auto lightMatrix = shadow->getLightMatrix(ctx.dirLight->getModelMatrix());
 
-	// 获取阴影Shader
-	Shader* shader = ShaderManager::getInstance().getOrCreate(
+	Shader* shaderReg = ShaderManager::getInstance().getOrCreate(
 		"assets/shaders/shadow/shadow.vert",
 		"assets/shaders/shadow/shadow.frag"
 	);
-	shader->begin();
-	shader->setMatrix4x4("lightMatrix", lightMatrix);
+	Shader* shaderInst = ShaderManager::getInstance().getOrCreate(
+		"assets/shaders/shadow/shadow_instanced.vert",
+		"assets/shaders/shadow/shadow.frag"
+	);
 
 	// 逐物体渲染深度
 	for (auto* mesh : mOpaqueMeshes) {
-		shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+		bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+		Shader* currentShader = isInstanced ? shaderInst : shaderReg;
+		
+		currentShader->begin();
+		currentShader->setMatrix4x4("lightMatrix", lightMatrix);
+
 		glBindVertexArray(mesh->mGeometry->getVao());
-		glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		if (isInstanced) {
+			auto* im = static_cast<InstancedMesh*>(mesh);
+			im->beforeDraw();
+			glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+		} else {
+			currentShader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+			glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+		}
 	}
 }
 
@@ -70,15 +84,14 @@ void ShadowPass::renderPointShadows(const RenderContext& ctx) {
 		auto* fbo = shadow->mRenderTarget;
 		auto lightMatrices = shadow->getLightMatrices(pl->getPosition());
 
-		// 获取点光源阴影Shader
-		Shader* shader = ShaderManager::getInstance().getOrCreate(
+		Shader* shaderReg = ShaderManager::getInstance().getOrCreate(
 			"assets/shaders/shadow/shadowDistance.vert",
 			"assets/shaders/shadow/shadowDistance.frag"
 		);
-
-		shader->begin();
-		shader->setFloat("far", shadow->mCamera->mFar);
-		shader->setVector3("lightPosition", pl->getPosition());
+		Shader* shaderInst = ShaderManager::getInstance().getOrCreate(
+			"assets/shaders/shadow/shadowDistance_instanced.vert",
+			"assets/shaders/shadow/shadowDistance.frag"
+		);
 
 		// 设置深度测试状态
 		glEnable(GL_DEPTH_TEST);
@@ -99,12 +112,25 @@ void ShadowPass::renderPointShadows(const RenderContext& ctx) {
 			glViewport(0, 0, fbo->mWidth, fbo->mHeight);
 			glClear(GL_DEPTH_BUFFER_BIT);
 
-			shader->setMatrix4x4("lightMatrix", lightMatrices[face]);
-
 			for (auto* mesh : mOpaqueMeshes) {
-				shader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+				bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+				Shader* currentShader = isInstanced ? shaderInst : shaderReg;
+
+				currentShader->begin();
+				currentShader->setMatrix4x4("lightMatrix", lightMatrices[face]);
+				currentShader->setFloat("far", shadow->mCamera->mFar);
+				currentShader->setVector3("lightPosition", pl->getPosition());
+
 				glBindVertexArray(mesh->mGeometry->getVao());
-				glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+
+				if (isInstanced) {
+					auto* im = static_cast<InstancedMesh*>(mesh);
+					im->beforeDraw();
+					glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+				} else {
+					currentShader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+					glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+				}
 			}
 		}
 	}

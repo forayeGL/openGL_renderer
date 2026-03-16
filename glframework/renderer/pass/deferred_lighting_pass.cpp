@@ -111,28 +111,28 @@ void DeferredLightingPass::execute(const RenderContext& ctx) {
 	}
 
 	// ==========================================
-	// 绑定IBL纹理到纹理单元 13-15
+	// 绑定IBL纹理到纹理单元 14-16
 	// ==========================================
 
 	// IBL辐照度贴图（漫反射间接光照）
 	if (mIrradianceMap) {
-		glActiveTexture(GL_TEXTURE13);
+		glActiveTexture(GL_TEXTURE14);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, mIrradianceMap);
-		shader->setInt("irradianceMap", 13);
+		shader->setInt("irradianceMap", 14);
 	}
 
 	// IBL预滤波环境贴图（镜面反射间接光照）
 	if (mPrefilteredMap) {
-		glActiveTexture(GL_TEXTURE14);
+		glActiveTexture(GL_TEXTURE15);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, mPrefilteredMap);
-		shader->setInt("prefilteredMap", 14);
+		shader->setInt("prefilteredMap", 15);
 	}
 
 	// BRDF积分查找表
 	if (mBRDFLUT) {
-		glActiveTexture(GL_TEXTURE15);
+		glActiveTexture(GL_TEXTURE16);
 		glBindTexture(GL_TEXTURE_2D, mBRDFLUT);
-		shader->setInt("brdfLUT", 15);
+		shader->setInt("brdfLUT", 16);
 	}
 
 	// 设置IBL启用标志
