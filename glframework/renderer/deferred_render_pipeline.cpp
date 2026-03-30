@@ -7,7 +7,19 @@
 #include "pass/gbuffer_pass.h"
 #include "pass/deferred_lighting_pass.h"
 #include "pass/postprocess_pass.h"
+#include "temporal_aa.h"
 #include "../shader_manager.h"
+
+namespace {
+	constexpr float kCameraStateEpsilon = 1e-5f;
+
+	bool isCameraChanged(const Camera* camera, const glm::vec3& prevPos, const glm::vec3& prevUp, const glm::vec3& prevRight) {
+		if (!camera) return true;
+		return glm::length(camera->mPosition - prevPos) > kCameraStateEpsilon
+			|| glm::length(camera->mUp - prevUp) > kCameraStateEpsilon
+			|| glm::length(camera->mRight - prevRight) > kCameraStateEpsilon;
+	}
+}
 
 DeferredRenderPipeline::DeferredRenderPipeline() = default;
 DeferredRenderPipeline::~DeferredRenderPipeline() = default;
@@ -59,6 +71,10 @@ Bloom* DeferredRenderPipeline::getBloom() const {
 	return mPostProcessPass ? mPostProcessPass->getBloom() : nullptr;
 }
 
+TemporalAA* DeferredRenderPipeline::getTAA() const {
+	return mPostProcessPass ? mPostProcessPass->getTAA() : nullptr;
+}
+
 void DeferredRenderPipeline::setIBLResources(
 	GLuint irradiance, GLuint prefiltered, GLuint brdfLUT
 ) {
@@ -71,6 +87,19 @@ void DeferredRenderPipeline::setIBLResources(
 
 void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 	const auto& lights = ctx.pointLights ? *ctx.pointLights : std::vector<PointLight*>{};
+	const bool taaEnabled = ctx.enableTAA && ctx.camera && mPostProcessPass && mPostProcessPass->getTAA();
+	if (taaEnabled) {
+		ctx.camera->setProjectionJitter(mPostProcessPass->getTAA()->consumeJitterNdc());
+	} else if (ctx.camera) {
+		ctx.camera->clearProjectionJitter();
+	}
+
+	const bool cameraChanged = !mHasPrevCameraState
+		|| isCameraChanged(ctx.camera, mPrevCameraPosition, mPrevCameraUp, mPrevCameraRight);
+	const bool resetTAAHistory = ctx.taaResetHistory || cameraChanged;
+
+	RenderContext postCtx = ctx;
+	postCtx.taaResetHistory = resetTAAHistory;
 
 	// 清除初始化阶段可能残留的GL错误（IBL生成等）
 	while (glGetError() != GL_NO_ERROR) {}
@@ -133,7 +162,7 @@ void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 	// 阶段6：后处理 - Bloom等
 	// ==========================================
 	mPostProcessPass->setInputFBO(mLightingPass->getOutputFBO());
-	mPostProcessPass->execute(ctx);
+ mPostProcessPass->execute(postCtx);
 
 	// ==========================================
 	// 阶段7：后处理屏幕Pass（色调映射 + gamma校正）
@@ -144,6 +173,14 @@ void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 
 	// 渲染后处理屏幕（ScreenMaterial读取后处理结果纹理）
 	mRenderer->render(ctx.postScene, ctx.camera, nullptr, lights);
+
+	if (ctx.camera) {
+		mPrevCameraPosition = ctx.camera->mPosition;
+		mPrevCameraUp = ctx.camera->mUp;
+		mPrevCameraRight = ctx.camera->mRight;
+		mHasPrevCameraState = true;
+		ctx.camera->clearProjectionJitter();
+	}
 }
 
 void DeferredRenderPipeline::renderSkybox(const RenderContext& ctx) {

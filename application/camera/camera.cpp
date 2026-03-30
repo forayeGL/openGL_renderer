@@ -27,3 +27,11 @@ glm::mat4 Camera::getProjectionMatrix() {
 void Camera::scale(float deltaScale) {
 
 }
+
+glm::mat4 Camera::applyProjectionJitter(const glm::mat4& proj) const {
+	glm::mat4 jittered = proj;
+	// OpenGL clip-space jitter: translate projection center in NDC.
+	jittered[2][0] += mProjectionJitter.x;
+	jittered[2][1] += mProjectionJitter.y;
+	return jittered;
+}

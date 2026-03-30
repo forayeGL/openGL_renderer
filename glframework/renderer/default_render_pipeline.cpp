@@ -2,6 +2,18 @@
 #include "renderer.h"
 #include "bloom.h"
 #include "debug_axis.h"
+#include "temporal_aa.h"
+
+namespace {
+	constexpr float kCameraStateEpsilon = 1e-5f;
+
+	bool isCameraChanged(const Camera* camera, const glm::vec3& prevPos, const glm::vec3& prevUp, const glm::vec3& prevRight) {
+		if (!camera) return true;
+		return glm::length(camera->mPosition - prevPos) > kCameraStateEpsilon
+			|| glm::length(camera->mUp - prevUp) > kCameraStateEpsilon
+			|| glm::length(camera->mRight - prevRight) > kCameraStateEpsilon;
+	}
+}
 
 // Constructors defined here so Renderer/Bloom are complete for unique_ptr deleters.
 DefaultRenderPipeline::DefaultRenderPipeline() = default;
@@ -12,7 +24,9 @@ void DefaultRenderPipeline::init(int width, int height) {
 	mHeight = height;
 	mRenderer  = std::make_unique<Renderer>();
 	mBloom     = std::make_unique<Bloom>(width, height);
+ mTAA       = std::make_unique<TemporalAA>(width, height);
 	mFboMulti  = std::unique_ptr<Framebuffer>(Framebuffer::createMultiSampleHDRFbo(width, height));
+    mFboPreTAA = std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
 	mFboResolve= std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
 	mDebugAxis = std::make_unique<DebugAxis>();
 	mUBOManager.init();
@@ -33,6 +47,17 @@ void DefaultRenderPipeline::execute(const RenderContext& ctx) {
 	mRenderer->setAmbientColor(ctx.ambientColor);
 
 	const auto& lights = ctx.pointLights ? *ctx.pointLights : std::vector<PointLight*>{};
+ const bool taaEnabled = ctx.enableTAA && mTAA && ctx.camera;
+	if (taaEnabled) {
+		ctx.camera->setProjectionJitter(mTAA->consumeJitterNdc());
+	} else if (ctx.camera) {
+		ctx.camera->clearProjectionJitter();
+	}
+
+	const bool cameraChanged = !mHasPrevCameraState
+		|| isCameraChanged(ctx.camera, mPrevCameraPosition, mPrevCameraUp, mPrevCameraRight);
+	const bool resetTAAHistory = ctx.taaResetHistory || cameraChanged;
+
 	mUBOManager.updateLights(ctx.dirLight, lights);
 	mUBOManager.updateShadow(ctx.dirLight, lights);
 	mUBOManager.updateRenderSettings(
@@ -50,7 +75,21 @@ void DefaultRenderPipeline::execute(const RenderContext& ctx) {
 	}
 
 	// Pass 2: MSAA resolve
-	mRenderer->msaaResolve(mFboMulti.get(), mFboResolve.get());
+ if (taaEnabled) {
+		mRenderer->msaaResolve(mFboMulti.get(), mFboPreTAA.get());
+		mTAA->resolve(
+			mFboPreTAA.get(),
+			mFboResolve.get(),
+			ctx.taaBlendFactor,
+			ctx.taaNeighborhoodClamp,
+			resetTAAHistory
+		);
+	} else {
+		if (mTAA) {
+			mTAA->resetHistory();
+		}
+		mRenderer->msaaResolve(mFboMulti.get(), mFboResolve.get());
+	}
 
 	// Pass 3: bloom post-processing
 	mBloom->doBloom(mFboResolve.get());
@@ -58,4 +97,12 @@ void DefaultRenderPipeline::execute(const RenderContext& ctx) {
 	// Pass 4: post scene → screen (no shadow, no lights)
 	mRenderer->setRenderMode(RenderMode::Fill);
 	mRenderer->render(ctx.postScene, ctx.camera, nullptr, lights);
+
+	if (ctx.camera) {
+		mPrevCameraPosition = ctx.camera->mPosition;
+		mPrevCameraUp = ctx.camera->mUp;
+		mPrevCameraRight = ctx.camera->mRight;
+		mHasPrevCameraState = true;
+		ctx.camera->clearProjectionJitter();
+	}
 }

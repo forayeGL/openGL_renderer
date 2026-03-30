@@ -10,7 +10,17 @@ public:
 	Bloom(int width, int height, int minResolution = 32);
 	~Bloom();
 
-	void doBloom(Framebuffer* srcFbo);
+  /**
+	 * @brief 对目标FBO执行Bloom，并将结果写回目标FBO
+	 * @param targetFbo Bloom合成输出目标
+	 * @param sourceFbo 原图来源（可选）
+	 *
+	 * 当sourceFbo为空时，会先将targetFbo备份到内部origin FBO，
+	 * 然后执行亮度提取/上下采样并合成回targetFbo。
+	 * 当sourceFbo非空时，直接以sourceFbo作为原图来源，
+	 * 避免额外备份拷贝。
+	 */
+	void doBloom(Framebuffer* targetFbo, Framebuffer* sourceFbo = nullptr);
 
 private:
 	void extractBright(Framebuffer* src, Framebuffer* dst);

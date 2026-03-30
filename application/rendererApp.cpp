@@ -75,8 +75,8 @@ bool RendererApp::init() {
 	GL_CALL(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 
 	prepareCamera();
-	prepareScene();
-	//prepareDefferedDemo();
+	//prepareScene();
+	prepareDefferedDemo();
 	//prepareForwardScene();
 	//prepareForwardDemo();
 	buildGuiPanels();
@@ -161,7 +161,7 @@ void RendererApp::prepareScene() {
 		mat->mNormal    = Texture::createTexture((base + "normal.png").c_str(), 0);
 		mat->mRoughness = Texture::createTexture((base + "roughness.png").c_str(), 0);
 		mat->mUseNormalMap = true;
-		mat->mUseIBL       = true;
+		mat->mUseIBL       = false;
 		mat->mInstanced    = true; // Add this line so default pipeline uses instanced shader
 		mat->mBRDFLUT = mBRDFLUT;
 		mat->mIrradianceIndirect = mIrradianceMap;
@@ -746,6 +746,9 @@ void RendererApp::buildGuiPanels() {
 			mRenderCtx.shadowType,
 			mRenderCtx.clearColor,
 			mRenderCtx.ambientColor,
+         mRenderCtx.enableTAA,
+			mRenderCtx.taaBlendFactor,
+			mRenderCtx.taaNeighborhoodClamp,
 			mScreenMat,
 			bloom,
 			mCameraControl.get()

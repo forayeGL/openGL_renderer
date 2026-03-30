@@ -37,32 +37,39 @@ Bloom::~Bloom() {
 
 }
 
-void Bloom::doBloom(Framebuffer* srcFbo) {
+void Bloom::doBloom(Framebuffer* targetFbo, Framebuffer* sourceFbo) {
+	if (!targetFbo) return;
+
+	Framebuffer* originFbo = sourceFbo ? sourceFbo : mOriginFbo;
+	if (!originFbo) return;
+
 	//① 保存原来的Fbo以及Viewport状态；
 	GLint preFbo;
 	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &preFbo);
 
 	GLint preViewport[4];
 	glGetIntegerv(GL_VIEWPORT, preViewport);
-	
-	//② 将原始FBO进行备份保存；
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo->mFBO);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mOriginFbo->mFBO);
-	glBlitFramebuffer(
-		0, 0, srcFbo->mWidth, srcFbo->mHeight, 
-		0, 0, mOriginFbo->mWidth, mOriginFbo->mHeight, 
-		GL_COLOR_BUFFER_BIT, GL_LINEAR);
-	
+
+	//② 当未提供外部原图时，备份目标FBO作为原图；
+	if (!sourceFbo) {
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, targetFbo->mFBO);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mOriginFbo->mFBO);
+		glBlitFramebuffer(
+			0, 0, targetFbo->mWidth, targetFbo->mHeight,
+			0, 0, mOriginFbo->mWidth, mOriginFbo->mHeight,
+			GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	}
+
 	//③ 提取亮部到downSample的第一个FBO上;
-	extractBright(srcFbo, mDownSamples[0]);
-	
+	extractBright(originFbo, mDownSamples[0]);
+
 	//④ 循环执行下采样；
 	for (int i = 1; i < mDownSamples.size(); i++) {
 		auto src = mDownSamples[i - 1];
 		auto dst = mDownSamples[i];
 		downSample(src, dst);
 	}
-	
+
 	//⑤ 循环执行上采样；
 	int N = mDownSamples.size();
 	auto lowerResFbo = mDownSamples[N - 1];
@@ -75,10 +82,10 @@ void Bloom::doBloom(Framebuffer* srcFbo) {
 
 		upSample(mUpSamples[i], lowerResFbo, higherResFbo);
 	}
-	
+
 	//⑥ 执行merge合并；
-	merge(srcFbo, mOriginFbo, mUpSamples[mUpSamples.size() - 1]);
-	
+	merge(targetFbo, originFbo, mUpSamples[mUpSamples.size() - 1]);
+
 	//⑦ 恢复原始Fbo以及Viewport状态
 	glBindFramebuffer(GL_FRAMEBUFFER, preFbo);
 	glViewport(preViewport[0], preViewport[1], preViewport[2], preViewport[3]);

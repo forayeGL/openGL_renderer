@@ -31,16 +31,17 @@ struct GPUDirectionalLight {
 struct GPUPointLight {
 	glm::vec4 position;      // xyz = position
 	glm::vec4 color;         // xyz = color
-	glm::vec4 attenuation;   // x=specular, y=k2, z=k1, w=kc
+    glm::vec4 attenuation;   // x=specular, y=k2, z=k1, w=kc
+	glm::vec4 params;        // x=effectiveRange
 };
-// 48 bytes
+// 64 bytes
 
 struct LightUBOData {
 	GPUDirectionalLight dirLight;                       //   0 -  47
-	GPUPointLight       pointLights[MAX_POINT_LIGHTS];  //  48 - 431
-	glm::ivec4          counts;                         // 432 - 447  x=numPointLights
+    GPUPointLight       pointLights[MAX_POINT_LIGHTS];  //  48 - 559
+	glm::ivec4          counts;                         // 560 - 575  x=numPointLights
 };
-// 448 bytes
+// 576 bytes
 
 struct ShadowUBOData {
 	glm::mat4 lightMatrix;        //   0 -  63

@@ -171,13 +171,22 @@ vec3 calcDirLightPBR(vec3 N, vec3 V,
 
 vec3 calcPointLightPBR(GPUPointLight pl, vec3 N, vec3 V,
                        vec3 albedo, float metallic, float roughness, vec3 F0) {
-    vec3  L     = normalize(pl.position.xyz - worldPosition);
+    vec3 toLight = pl.position.xyz - worldPosition;
+    float dist = length(toLight);
+    float range = pl.params.x;
+    if (range > 0.0 && dist > range) {
+        return vec3(0.0);
+    }
+
+    vec3  L     = toLight / max(dist, 0.0001);
     vec3  H     = normalize(L + V);
     float NdotL = max(dot(N, L), 0.0);
     float NdotV = max(dot(N, V), 0.0);
 
-    float dist        = length(pl.position.xyz - worldPosition);
-    float attenuation = 1.0 / (dist * dist);
+    float k2 = pl.attenuation.y;
+    float k1 = pl.attenuation.z;
+    float kc = pl.attenuation.w;
+    float attenuation = 1.0 / max(k2 * dist * dist + k1 * dist + kc, 0.0001);
 
     float D = NDF_GGX(N, H, roughness);
     float G = GeometrySmith(N, V, L, roughness);
@@ -210,6 +219,11 @@ void main()
         float totalShadow = dirShadow;
         int nPL = numPointLights;
         for (int i = 0; i < nPL && i < MAX_POINT_LIGHTS; i++) {
+            vec3 toLight = pointLights[i].position.xyz - worldPosition;
+            float dist = length(toLight);
+            float range = pointLights[i].params.x;
+            if (range > 0.0 && dist > range) continue;
+
             totalShadow = min(totalShadow, calcPointShadow(i, worldPosition, pointLights[i].position.xyz, N));
         }
         FragColor = vec4(vec3(totalShadow), 1.0);
@@ -232,6 +246,11 @@ void main()
     Lo += calcDirLightPBR(N, V, albedo, metallic, roughness, F0) * dirShadow;
 
     for (int i = 0; i < numPointLights && i < MAX_POINT_LIGHTS; i++) {
+        vec3 toLight = pointLights[i].position.xyz - worldPosition;
+        float dist = length(toLight);
+        float range = pointLights[i].params.x;
+        if (range > 0.0 && dist > range) continue;
+
         float ptShadow = calcPointShadow(i, worldPosition, pointLights[i].position.xyz, N);
         Lo += calcPointLightPBR(pointLights[i], N, V, albedo, metallic, roughness, F0) * ptShadow;
     }

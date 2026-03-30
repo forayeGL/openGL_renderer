@@ -10,6 +10,7 @@ class GBufferPass;
 class DeferredLightingPass;
 class PostProcessPass;
 class DebugAxis;
+class TemporalAA;
 
 /**
  * @brief 延迟渲染管线
@@ -45,6 +46,7 @@ public:
 
 	/// 获取Bloom对象（供GUI面板调参）
 	Bloom* getBloom() const;
+	TemporalAA* getTAA() const;
 
 	/// 获取Renderer对象（供GUI面板使用，用于前向渲染透明物体）
 	Renderer* getRenderer() const { return mRenderer.get(); }
@@ -73,4 +75,8 @@ private:
 
 	int mWidth{ 0 };
 	int mHeight{ 0 };
+  bool mHasPrevCameraState{ false };
+	glm::vec3 mPrevCameraPosition{ 0.0f };
+	glm::vec3 mPrevCameraUp{ 0.0f, 1.0f, 0.0f };
+	glm::vec3 mPrevCameraRight{ 1.0f, 0.0f, 0.0f };
 };

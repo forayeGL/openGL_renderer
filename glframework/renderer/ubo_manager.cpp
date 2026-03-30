@@ -4,6 +4,49 @@
 #include "../../application/camera/orthographicCamera.h"
 #include <cstring>
 #include <algorithm>
+#include <cmath>
+
+namespace {
+	constexpr float kMinAttenuation = 1e-4f;
+	constexpr float kRangeCutoffLuminance = 0.02f;
+
+	float computePointLightEffectiveRange(const PointLight* pl) {
+		if (!pl) return 0.0f;
+
+		if (pl->mRange > 0.0f) {
+			return pl->mRange;
+		}
+
+		const float lightStrength = std::max({ pl->mColor.r, pl->mColor.g, pl->mColor.b, 0.0f });
+		if (lightStrength <= 0.0f) {
+			return 0.0f;
+		}
+
+		const float k2 = std::max(pl->mK2, 0.0f);
+		const float k1 = std::max(pl->mK1, 0.0f);
+		const float kc = std::max(pl->mKc, kMinAttenuation);
+
+		// Solve: lightStrength / (k2*d^2 + k1*d + kc) = cutoff
+		// => k2*d^2 + k1*d + kc - lightStrength/cutoff = 0
+		const float c = kc - lightStrength / kRangeCutoffLuminance;
+
+		if (k2 > kMinAttenuation) {
+			const float discriminant = k1 * k1 - 4.0f * k2 * c;
+			if (discriminant <= 0.0f) {
+				return 0.0f;
+			}
+			const float radius = (-k1 + std::sqrt(discriminant)) / (2.0f * k2);
+			return std::max(radius, 0.0f);
+		}
+
+		if (k1 > kMinAttenuation) {
+			const float radius = -c / k1;
+			return std::max(radius, 0.0f);
+		}
+
+		return 0.0f;
+	}
+}
 
 UBOManager::UBOManager() {
 }
@@ -55,6 +98,7 @@ void UBOManager::updateLights(
 		mLightData.pointLights[i].attenuation = glm::vec4(
 			pl->mSpecularIntensity, pl->mK2, pl->mK1, pl->mKc
 		);
+       mLightData.pointLights[i].params = glm::vec4(computePointLightEffectiveRange(pl), 0.0f, 0.0f, 0.0f);
 	}
 
 	glBindBuffer(GL_UNIFORM_BUFFER, mLightUBO);

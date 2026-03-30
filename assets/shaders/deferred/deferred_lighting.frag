@@ -177,14 +177,23 @@ vec3 fresnelSchlickRoughness(vec3 F0, float cosTheta, float roughness) {
 /// 计算单个点光源的PBR直接光照贡献
 vec3 calcPointLightPBR(GPUPointLight pl, vec3 worldPos, vec3 N, vec3 V,
                         vec3 albedo, float metallic, float roughness, vec3 F0) {
-    vec3 L = normalize(pl.position.xyz - worldPos);
+    vec3 toLight = pl.position.xyz - worldPos;
+    float dist = length(toLight);
+    float range = pl.params.x;
+    if (range > 0.0 && dist > range) {
+        return vec3(0.0);
+    }
+
+    vec3 L = toLight / max(dist, 0.0001);
     vec3 H = normalize(L + V);
     float NdotL = max(dot(N, L), 0.0);
     float NdotV = max(dot(N, V), 0.0);
 
     // 计算距离衰减
-    float dist = length(pl.position.xyz - worldPos);
-    float attenuation = 1.0 / (dist * dist);
+    float k2 = pl.attenuation.y;
+    float k1 = pl.attenuation.z;
+    float kc = pl.attenuation.w;
+    float attenuation = 1.0 / max(k2 * dist * dist + k1 * dist + kc, 0.0001);
     vec3 radiance = pl.color.xyz * attenuation * NdotL;
 
     // Cook-Torrance BRDF
@@ -250,6 +259,11 @@ void main()
         float totalShadow = dirShadow;
         int nPL = numPointLights;
         for (int i = 0; i < nPL && i < MAX_POINT_LIGHTS; i++) {
+            vec3 toLight = pointLights[i].position.xyz - worldPos;
+            float dist = length(toLight);
+            float range = pointLights[i].params.x;
+            if (range > 0.0 && dist > range) continue;
+
             totalShadow = min(totalShadow, calcPointShadow(i, worldPos, pointLights[i].position.xyz, N));
         }
         FragColor = vec4(vec3(totalShadow), 1.0);
@@ -274,6 +288,11 @@ void main()
     // 点光源直接光照
     int nPL = numPointLights;
     for (int i = 0; i < nPL && i < MAX_POINT_LIGHTS; i++) {
+        vec3 toLight = pointLights[i].position.xyz - worldPos;
+        float dist = length(toLight);
+        float range = pointLights[i].params.x;
+        if (range > 0.0 && dist > range) continue;
+
         float ptShadow = calcPointShadow(i, worldPos, pointLights[i].position.xyz, N);
         Lo += calcPointLightPBR(pointLights[i], worldPos, N, V, albedo, metallic, roughness, F0)
               * ptShadow;

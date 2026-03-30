@@ -58,6 +58,18 @@ void LightingPanel::onRender() {
 			ImGui::SliderFloat(("PL K1##"   + id).c_str(), &mPointLights[i]->mK1, 0.0f, 2.0f);
 			ImGui::SliderFloat(("PL Kc##"   + id).c_str(), &mPointLights[i]->mKc, 0.0f, 2.0f);
 
+			bool autoRange = mPointLights[i]->mRange <= 0.0f;
+			if (ImGui::Checkbox(("PL Auto Range##" + id).c_str(), &autoRange)) {
+				if (autoRange) {
+					mPointLights[i]->mRange = -1.0f;
+				} else if (mPointLights[i]->mRange <= 0.0f) {
+					mPointLights[i]->mRange = 10.0f;
+				}
+			}
+			if (!autoRange) {
+				ImGui::SliderFloat(("PL Range##" + id).c_str(), &mPointLights[i]->mRange, 0.1f, 500.0f);
+			}
+
 			if (mPointLights[i]->mShadow) {
 				ImGui::SliderFloat(("PL Shadow Bias##" + id).c_str(),
 					&mPointLights[i]->mShadow->mBias, 0.0f, 0.01f, "%.5f");
