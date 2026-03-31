@@ -32,6 +32,10 @@ struct RenderContext {
 	int       renderModeIdx{ 0 };
 	int       shadowType{ 1 };        // 0: Normal, 1: PCF, 2: CSM
 	bool      enableAxis{ true };     ///< 是否启用坐标系渲染
+	bool      enableTAA{ false };     ///< 是否启用TAA
+	float     taaBlendFactor{ 0.1f }; ///< 历史混合系数（越大越平滑）
+	bool      taaNeighborhoodClamp{ true }; ///< 是否启用邻域裁剪抑制拖影
+	bool      taaResetHistory{ false }; ///< 本帧是否强制重置TAA历史
 
 	// IBL资源句柄（由应用层设置，延迟管线消费）
 	GLuint iblIrradianceMap{ 0 };     ///< IBL辐照度立方体贴图

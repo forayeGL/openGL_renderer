@@ -17,24 +17,56 @@ public:
 	) override;
 
 public:
-	Texture*	mDiffuse{ nullptr };
-	Texture*	mOpacityMask{ nullptr };
-	float		mShiness{ 1.0f };
+    // Base map aliases kept for compatibility.
+	Texture* mDiffuse{ nullptr };      // == mAlbedo
+	Texture* mOpacityMask{ nullptr };  // == mOpacity
 
-	//草地贴图特性
-	float		mUVScale{ 1.0f };
-	float		mBrightness{ 1.0f };
+	// PBR texture slots.
+	Texture* mAlbedo{ nullptr };
+	Texture* mNormal{ nullptr };
+	Texture* mRoughness{ nullptr };
+	Texture* mMetallic{ nullptr };
+	Texture* mAO{ nullptr };
+	Texture* mOpacity{ nullptr };
+	Texture* mThickness{ nullptr };
 
-	//风力相关
-	float		mWindScale{ 0.1f };
-	glm::vec3	mWindDirection{ 1.0, 1.0,1.0 };
-	float		mPhaseScale{ 1.0f };
+	// IBL resources.
+	GLuint mIrradianceIndirect{ 0 };
+	GLuint mPrefilteredMap{ 0 };
+	GLuint mBRDFLUT{ 0 };
 
-	//云朵相关
-	Texture*	mCloudMask{ nullptr };
-	glm::vec3	mCloudWhiteColor{ 0.576, 1.0, 0.393 };
-	glm::vec3	mCloudBlackColor{ 0.994, 0.3, 0.426 };
-	float		mCloudUVScale{ 1.0f };
-	float		mCloudSpeed{ 0.1f };
-	float		mCloudLerp{ 0.5f };
+	// Texture usage switches.
+	bool mUseAlbedoMap{ true };
+	bool mUseNormalMap{ false };
+	bool mUseRoughnessMap{ false };
+	bool mUseMetallicMap{ false };
+	bool mUseAOMap{ false };
+	bool mUseOpacityMap{ true };
+	bool mUseThicknessMap{ false };
+	bool mUseIBL{ true };
+	bool mUseTransmission{ true };
+
+	// Scalar/vector fallback parameters.
+	glm::vec3 mAlbedoValue{ 0.35f, 0.55f, 0.25f };
+	float mRoughnessValue{ 0.85f };
+	float mMetallicValue{ 0.0f };
+	float mAOValue{ 1.0f };
+	float mOpacityValue{ 1.0f };
+	float mThicknessValue{ 0.6f };
+	float mSpecularBoost{ 0.2f };
+	glm::vec3 mSubsurfaceColor{ 0.45f, 0.9f, 0.35f };
+	float mTransmissionStrength{ 0.35f };
+	float mAlphaCutoff{ 0.35f };
+
+	// World-space UV controls.
+	float mUVScale{ 1.0f };
+	float mBrightness{ 1.0f };
+
+	// Wind controls.
+	glm::vec3 mWindDirection{ 1.0f, 0.0f, 0.2f };
+	float mWindAmplitude{ 0.08f };
+	float mWindFrequency{ 1.2f };
+	float mWindGustAmplitude{ 0.03f };
+	float mWindGustFrequency{ 3.2f };
+	float mPhaseScale{ 2.0f };
 };

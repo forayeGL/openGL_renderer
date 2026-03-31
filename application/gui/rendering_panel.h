@@ -13,6 +13,9 @@ public:
 		int&               shadowType,
 		glm::vec3&         clearColor,
 		glm::vec3&         ambientColor,
+       bool&              enableTAA,
+		float&             taaBlendFactor,
+		bool&              taaNeighborhoodClamp,
 		ScreenMaterial*    screenMat,
 		Bloom*             bloom,
 		GameCameraControl* cameraControl
@@ -25,6 +28,9 @@ private:
 	int&               mShadowType;
 	glm::vec3&         mClearColor;
 	glm::vec3&         mAmbientColor;
+  bool&              mEnableTAA;
+	float&             mTaaBlendFactor;
+	bool&              mTaaNeighborhoodClamp;
 	ScreenMaterial*    mScreenMat;
 	Bloom*             mBloom;
 	GameCameraControl* mCameraControl;

@@ -1,9 +1,53 @@
 #include "ubo_manager.h"
 #include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/directionalLightCSMShadow.h"
 #include "../light/shadow/pointLightShadow.h"
 #include "../../application/camera/orthographicCamera.h"
 #include <cstring>
 #include <algorithm>
+#include <cmath>
+
+namespace {
+	constexpr float kMinAttenuation = 1e-4f;
+	constexpr float kRangeCutoffLuminance = 0.02f;
+
+	float computePointLightEffectiveRange(const PointLight* pl) {
+		if (!pl) return 0.0f;
+
+		if (pl->mRange > 0.0f) {
+			return pl->mRange;
+		}
+
+		const float lightStrength = std::max({ pl->mColor.r, pl->mColor.g, pl->mColor.b, 0.0f });
+		if (lightStrength <= 0.0f) {
+			return 0.0f;
+		}
+
+		const float k2 = std::max(pl->mK2, 0.0f);
+		const float k1 = std::max(pl->mK1, 0.0f);
+		const float kc = std::max(pl->mKc, kMinAttenuation);
+
+		// Solve: lightStrength / (k2*d^2 + k1*d + kc) = cutoff
+		// => k2*d^2 + k1*d + kc - lightStrength/cutoff = 0
+		const float c = kc - lightStrength / kRangeCutoffLuminance;
+
+		if (k2 > kMinAttenuation) {
+			const float discriminant = k1 * k1 - 4.0f * k2 * c;
+			if (discriminant <= 0.0f) {
+				return 0.0f;
+			}
+			const float radius = (-k1 + std::sqrt(discriminant)) / (2.0f * k2);
+			return std::max(radius, 0.0f);
+		}
+
+		if (k1 > kMinAttenuation) {
+			const float radius = -c / k1;
+			return std::max(radius, 0.0f);
+		}
+
+		return 0.0f;
+	}
+}
 
 UBOManager::UBOManager() {
 }
@@ -55,6 +99,7 @@ void UBOManager::updateLights(
 		mLightData.pointLights[i].attenuation = glm::vec4(
 			pl->mSpecularIntensity, pl->mK2, pl->mK1, pl->mKc
 		);
+       mLightData.pointLights[i].params = glm::vec4(computePointLightEffectiveRange(pl), 0.0f, 0.0f, 0.0f);
 	}
 
 	glBindBuffer(GL_UNIFORM_BUFFER, mLightUBO);
@@ -65,30 +110,62 @@ void UBOManager::updateLights(
 
 void UBOManager::updateShadow(
 	DirectionalLight* dirLight,
+ Camera* camera,
 	const std::vector<PointLight*>& pointLights
 ) {
 	std::memset(&mShadowData, 0, sizeof(mShadowData));
 
 	if (dirLight && dirLight->mShadow) {
-		auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
-		mShadowData.lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
-		mShadowData.lightViewMatrix = glm::inverse(dirLight->getModelMatrix());
-		mShadowData.params1 = glm::vec4(
-			shadow->mBias, shadow->mPcfRadius,
-			shadow->mDiskTightness, shadow->mLightSize
-		);
+     mShadowData.flags.x = 1; // hasDirShadow
 
-		float nearPlane = 0.0f;
-		float frustum = 100.0f;
-		if (shadow->mCamera) {
-			nearPlane = shadow->mCamera->mNear;
-			auto* ortho = dynamic_cast<OrthographicCamera*>(shadow->mCamera);
-			if (ortho) {
-				frustum = ortho->mR - ortho->mL;
+		if (auto* csmShadow = dynamic_cast<DirectionalLightCSMShadow*>(dirLight->mShadow)) {
+			const int cascadeCount = std::clamp(csmShadow->mLayerCount, 1, MAX_CSM_CASCADES);
+			const float nearClip = std::max(camera ? camera->mNear : 0.1f, 0.01f);
+			const float farClip = std::max(camera ? camera->mFar : 200.0f, nearClip + 0.01f);
+
+			std::vector<float> clips;
+			csmShadow->generateCascadeLayers(clips, nearClip, farClip);
+			auto csmMatrices = csmShadow->getLightMatrices(camera, dirLight->getDirection(), clips);
+
+			mShadowData.params1 = glm::vec4(
+				csmShadow->mBias, csmShadow->mPcfRadius,
+				csmShadow->mDiskTightness, csmShadow->mLightSize
+			);
+			mShadowData.params2 = glm::vec4(nearClip, farClip - nearClip, 0.0f, 0.0f);
+			mShadowData.flags.z = cascadeCount;
+
+			for (int i = 0; i < cascadeCount && i < static_cast<int>(csmMatrices.size()); ++i) {
+				mShadowData.csmLightMatrices[i] = csmMatrices[i];
 			}
+
+			for (int i = 0; i < cascadeCount; ++i) {
+				const float split = clips[i + 1];
+				if (i < 4) {
+					mShadowData.csmSplits01[i] = split;
+				} else {
+					mShadowData.csmSplits23[i - 4] = split;
+				}
+			}
+		} else {
+			auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
+			mShadowData.lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
+			mShadowData.lightViewMatrix = glm::inverse(dirLight->getModelMatrix());
+			mShadowData.params1 = glm::vec4(
+				shadow->mBias, shadow->mPcfRadius,
+				shadow->mDiskTightness, shadow->mLightSize
+			);
+
+			float nearPlane = 0.0f;
+			float frustum = 100.0f;
+			if (shadow->mCamera) {
+				nearPlane = shadow->mCamera->mNear;
+				auto* ortho = dynamic_cast<OrthographicCamera*>(shadow->mCamera);
+				if (ortho) {
+					frustum = ortho->mR - ortho->mL;
+				}
+			}
+			mShadowData.params2 = glm::vec4(nearPlane, frustum, 0.0f, 0.0f);
 		}
-		mShadowData.params2 = glm::vec4(nearPlane, frustum, 0.0f, 0.0f);
-		mShadowData.flags.x = 1; // hasDirShadow
 	}
 
 	int count = std::min((int)pointLights.size(), MAX_POINT_SHADOW);

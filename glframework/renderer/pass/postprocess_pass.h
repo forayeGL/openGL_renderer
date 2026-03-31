@@ -4,6 +4,7 @@
 
 class Bloom;
 class Renderer;
+class TemporalAA;
 
 /**
  * @brief 后处理Pass
@@ -33,6 +34,9 @@ public:
 	/// 获取Bloom对象（供GUI面板调参）
 	Bloom* getBloom() const { return mBloom.get(); }
 
+	/// 获取TAA对象（供管线驱动抖动和历史控制）
+	TemporalAA* getTAA() const { return mTAA.get(); }
+
 	/// 获取后处理结果FBO的颜色附件（供屏幕材质使用）
 	Texture* getOutputColorTexture() const;
 
@@ -43,6 +47,7 @@ private:
 	Framebuffer* mInputFBO{ nullptr };             ///< 输入FBO（不拥有所有权）
 	std::unique_ptr<Framebuffer> mOutputFBO;       ///< 后处理输出FBO
 	std::unique_ptr<Bloom> mBloom;                  ///< Bloom泛光处理器
+    std::unique_ptr<TemporalAA> mTAA;               ///< TAA处理器
 	int mWidth{ 0 };
 	int mHeight{ 0 };
 };

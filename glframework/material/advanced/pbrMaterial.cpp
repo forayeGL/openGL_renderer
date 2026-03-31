@@ -36,6 +36,8 @@ void PbrMaterial::applyUniforms(
 
 	// 反照率贴图
 	shader->setInt("albedoTex", 0);
+  shader->setInt("useAlbedoMap", (mUseAlbedoMap && mAlbedo) ? 1 : 0);
+	shader->setVector3("albedoValue", mAlbedoValue);
 	if (mAlbedo) {
 		mAlbedo->setUnit(0);
 		mAlbedo->bind();
@@ -51,6 +53,8 @@ void PbrMaterial::applyUniforms(
 
 	// 粗糙度贴图
 	shader->setInt("roughnessTex", 2);
+   shader->setInt("useRoughnessMap", (mUseRoughnessMap && mRoughness) ? 1 : 0);
+	shader->setFloat("roughnessValue", mRoughnessValue);
 	if (mRoughness) {
 		mRoughness->setUnit(2);
 		mRoughness->bind();
@@ -58,6 +62,8 @@ void PbrMaterial::applyUniforms(
 
 	// 金属度贴图
 	shader->setInt("metallicTex", 3);
+    shader->setInt("useMetallicMap", (mUseMetallicMap && mMetallic) ? 1 : 0);
+	shader->setFloat("metallicValue", mMetallicValue);
 	if (mMetallic) {
 		mMetallic->setUnit(3);
 		mMetallic->bind();
@@ -65,6 +71,8 @@ void PbrMaterial::applyUniforms(
 
 	// 环境光遮蔽贴图
 	shader->setInt("aoTex", 4);
+  shader->setInt("useAOMap", (mUseAOMap && mAO) ? 1 : 0);
+	shader->setFloat("aoValue", mAOValue);
 	if (mAO) {
 		mAO->setUnit(4);
 		mAO->bind();

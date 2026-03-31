@@ -14,7 +14,8 @@ OrthographicCamera::~OrthographicCamera() {
 
 glm::mat4 OrthographicCamera::getProjectionMatrix(){
 	float scale = std::pow(2.0f, mScale);
-	return glm::ortho(mL * scale, mR * scale, mB * scale, mT * scale, mNear, mFar);
+ auto proj = glm::ortho(mL * scale, mR * scale, mB * scale, mT * scale, mNear, mFar);
+	return applyProjectionJitter(proj);
 }
 
 void OrthographicCamera::scale(float deltaScale) {

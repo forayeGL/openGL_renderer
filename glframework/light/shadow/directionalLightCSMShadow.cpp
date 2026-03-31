@@ -1,6 +1,8 @@
 #include"directionalLightCSMShadow.h"
 #include "../../../application/camera/perspectiveCamera.h"
 #include "../../tools/tools.h"
+#include <algorithm>
+#include <limits>
 
 DirectionalLightCSMShadow::DirectionalLightCSMShadow() {
 	mRenderTarget = Framebuffer::createCSMShadowFbo(1024, 1024, mLayerCount);

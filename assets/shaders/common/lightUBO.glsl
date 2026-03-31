@@ -13,13 +13,14 @@ struct GPUDirectionalLight {
 struct GPUPointLight {
 	vec4 position;           // xyz = position             (offset  0, size 16)
 	vec4 color;              // xyz = color                (offset 16, size 16)
-	vec4 attenuation;        // x=specular, y=k2, z=k1, w=kc (offset 32, size 16)
+   vec4 attenuation;        // x=specular, y=k2, z=k1, w=kc (offset 32, size 16)
+	vec4 params;             // x=effectiveRange           (offset 48, size 16)
 };
-// total per struct: 48 bytes
+// total per struct: 64 bytes
 
 layout(std140, binding = 0) uniform LightBlock {
 	GPUDirectionalLight dirLight;                      // offset   0, size  48
-	GPUPointLight       pointLights[MAX_POINT_LIGHTS]; // offset  48, size 384
-	int                 numPointLights;                // offset 432, size   4
-	// pad to 16-byte boundary: 12 bytes padding       // total  448
+  GPUPointLight       pointLights[MAX_POINT_LIGHTS]; // offset  48, size 512
+	int                 numPointLights;                // offset 560, size   4
+	// pad to 16-byte boundary: 12 bytes padding       // total  576
 };

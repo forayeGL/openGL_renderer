@@ -49,26 +49,12 @@ public:
 	/// 获取光照输出颜色纹理
 	Texture* getOutputColorTexture() const;
 
-	/// 设置IBL辐照度立方体贴图
-	void setIrradianceMap(GLuint tex) { mIrradianceMap = tex; }
-
-	/// 设置IBL预滤波环境贴图
-	void setPrefilteredMap(GLuint tex) { mPrefilteredMap = tex; }
-
-	/// 设置BRDF积分查找表
-	void setBRDFLUT(GLuint tex) { mBRDFLUT = tex; }
-
 private:
 	Framebuffer* mGBuffer{ nullptr };  ///< GBuffer引用（不拥有所有权）
 	UBOManager*  mUBOManager{ nullptr };
 
 	std::unique_ptr<Framebuffer> mOutputFBO;  ///< 光照输出HDR FBO
 	Geometry* mScreenQuad{ nullptr };          ///< 全屏四边形几何
-
-	/// IBL纹理句柄
-	GLuint mIrradianceMap{ 0 };
-	GLuint mPrefilteredMap{ 0 };
-	GLuint mBRDFLUT{ 0 };
 
 	int mWidth{ 0 };
 	int mHeight{ 0 };

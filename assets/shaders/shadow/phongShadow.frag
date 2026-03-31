@@ -57,13 +57,19 @@ vec3 calcDirectionalLight(vec3 objColor, vec3 N, vec3 V) {
 }
 
 vec3 calcPointLight(GPUPointLight pl, vec3 objColor, vec3 N, vec3 V) {
-	vec3 lightDir = normalize(worldPosition - pl.position.xyz);
-	float dist = length(worldPosition - pl.position.xyz);
+ vec3 toLight = worldPosition - pl.position.xyz;
+	float dist = length(toLight);
+	float range = pl.params.x;
+	if (range > 0.0 && dist > range) {
+		return vec3(0.0);
+	}
+
+	vec3 lightDir = toLight / max(dist, 0.0001);
 	float specI = pl.attenuation.x;
 	float k2 = pl.attenuation.y;
 	float k1 = pl.attenuation.z;
 	float kc = pl.attenuation.w;
-	float atten = 1.0 / (k2 * dist * dist + k1 * dist + kc);
+    float atten = 1.0 / max(k2 * dist * dist + k1 * dist + kc, 0.0001);
 	return (calcDiffuse(pl.color.xyz, objColor, lightDir, N)
 	      + calcSpecular(pl.color.xyz, lightDir, N, V, specI)) * atten;
 }
@@ -182,6 +188,11 @@ void main()
 	// Point lights contribution
 	int nPL = numPointLights;
 	for (int i = 0; i < nPL && i < MAX_POINT_LIGHTS; i++) {
+      vec3 toLight = worldPosition - pointLights[i].position.xyz;
+		float dist = length(toLight);
+		float range = pointLights[i].params.x;
+		if (range > 0.0 && dist > range) continue;
+
 		vec3 plResult = calcPointLight(pointLights[i], objectColor, N, V);
 		float plShadow = 0.0;
 		if (i < getNumPointShadows()) {

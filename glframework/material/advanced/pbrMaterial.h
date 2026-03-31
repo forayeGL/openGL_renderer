@@ -47,7 +47,17 @@ public:
 	GLuint mPrefilteredMap{ 0 };      ///< IBL预滤波环境贴图
 	GLuint mBRDFLUT{ 0 };             ///< BRDF积分查找表
 
-	// 是否使用法线贴图
+ // 是否使用贴图
+	bool mUseAlbedoMap{ true };
 	bool mUseNormalMap{ true };
+	bool mUseMetallicMap{ true };
+	bool mUseRoughnessMap{ true };
+	bool mUseAOMap{ true };
 	bool mUseIBL{ true };
+
+	// 常量参数（对应贴图关闭时生效）
+	glm::vec3 mAlbedoValue{ 1.0f, 1.0f, 1.0f };
+	float mMetallicValue{ 0.0f };
+	float mRoughnessValue{ 0.5f };
+	float mAOValue{ 1.0f };
 };

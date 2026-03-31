@@ -75,8 +75,8 @@ bool RendererApp::init() {
 	GL_CALL(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 
 	prepareCamera();
-	prepareScene();
-	//prepareDefferedDemo();
+	//prepareScene();
+	prepareDefferedDemo();
 	//prepareForwardScene();
 	//prepareForwardDemo();
 	buildGuiPanels();
@@ -161,7 +161,7 @@ void RendererApp::prepareScene() {
 		mat->mNormal    = Texture::createTexture((base + "normal.png").c_str(), 0);
 		mat->mRoughness = Texture::createTexture((base + "roughness.png").c_str(), 0);
 		mat->mUseNormalMap = true;
-		mat->mUseIBL       = true;
+		mat->mUseIBL       = false;
 		mat->mInstanced    = true; // Add this line so default pipeline uses instanced shader
 		mat->mBRDFLUT = mBRDFLUT;
 		mat->mIrradianceIndirect = mIrradianceMap;
@@ -288,11 +288,6 @@ void RendererApp::prepareScene() {
 		mPointLights.push_back(pointLight);
 	}
 
-	// 将IBL资源传递给延迟管线
-	auto* deferredPL = dynamic_cast<DeferredRenderPipeline*>(mPipeline.get());
-	if (deferredPL) {
-		deferredPL->setIBLResources(mIrradianceMap, mPrefilteredMap, mBRDFLUT);
-	}
 }
 
 void RendererApp::prepareForwardScene()
@@ -503,12 +498,6 @@ void RendererApp::prepareDefferedDemo()
 		pointLight->mColor = lightColors[i];
 		mPointLights.push_back(pointLight);
 	}
-	// 将IBL资源传递给延迟管线
-	auto* deferredPL = dynamic_cast<DeferredRenderPipeline*>(mPipeline.get());
-	if (deferredPL) {
-		deferredPL->setIBLResources(mIrradianceMap, mPrefilteredMap, mBRDFLUT);
-	}
-
 }
 
 void RendererApp::prepareForwardDemo()
@@ -746,6 +735,9 @@ void RendererApp::buildGuiPanels() {
 			mRenderCtx.shadowType,
 			mRenderCtx.clearColor,
 			mRenderCtx.ambientColor,
+         mRenderCtx.enableTAA,
+			mRenderCtx.taaBlendFactor,
+			mRenderCtx.taaNeighborhoodClamp,
 			mScreenMat,
 			bloom,
 			mCameraControl.get()
@@ -814,7 +806,23 @@ void RendererApp::removePointLight(int idx) {
 }
 
 void RendererApp::onResize(int width, int height) {
+   if (!sInstance) return;
+
+	sInstance->mWidth = width;
+	sInstance->mHeight = height;
+
 	GL_CALL(glViewport(0, 0, width, height));
+
+	if (auto* perspective = dynamic_cast<PerspectiveCamera*>(sInstance->mCamera.get())) {
+		perspective->mAspect = static_cast<float>(width) / static_cast<float>(height);
+	}
+
+	if (sInstance->mPipeline) {
+		sInstance->mPipeline->resize(width, height);
+		if (sInstance->mScreenMat) {
+			sInstance->mScreenMat->mScreenTexture = sInstance->mPipeline->getResolveColorAttachment();
+		}
+	}
 }
 
 void RendererApp::onKey(int key, int action, int mods) {

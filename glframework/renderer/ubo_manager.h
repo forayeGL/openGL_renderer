@@ -11,6 +11,7 @@
 
 static constexpr int MAX_POINT_LIGHTS = 8;
 static constexpr int MAX_POINT_SHADOW = 8;
+static constexpr int MAX_CSM_CASCADES = 8;
 
 // ---- Render Mode enum (shared with GUI) ----
 enum class RenderMode : int {
@@ -31,16 +32,17 @@ struct GPUDirectionalLight {
 struct GPUPointLight {
 	glm::vec4 position;      // xyz = position
 	glm::vec4 color;         // xyz = color
-	glm::vec4 attenuation;   // x=specular, y=k2, z=k1, w=kc
+    glm::vec4 attenuation;   // x=specular, y=k2, z=k1, w=kc
+	glm::vec4 params;        // x=effectiveRange
 };
-// 48 bytes
+// 64 bytes
 
 struct LightUBOData {
 	GPUDirectionalLight dirLight;                       //   0 -  47
-	GPUPointLight       pointLights[MAX_POINT_LIGHTS];  //  48 - 431
-	glm::ivec4          counts;                         // 432 - 447  x=numPointLights
+    GPUPointLight       pointLights[MAX_POINT_LIGHTS];  //  48 - 559
+	glm::ivec4          counts;                         // 560 - 575  x=numPointLights
 };
-// 448 bytes
+// 576 bytes
 
 struct ShadowUBOData {
 	glm::mat4 lightMatrix;        //   0 -  63
@@ -49,9 +51,12 @@ struct ShadowUBOData {
 	glm::vec4 params2;            // 144 - 159  x=nearPlane, y=frustum
 	glm::vec4 pointShadowFar01;   // 160 - 175  far[0..3]
 	glm::vec4 pointShadowFar23;   // 176 - 191  far[4..7]
-	glm::ivec4 flags;             // 192 - 207  x=hasDirShadow, y=numPointShadows
+   glm::ivec4 flags;             // 192 - 207  x=hasDirShadow, y=numPointShadows, z=csmCascadeCount
+	glm::mat4 csmLightMatrices[MAX_CSM_CASCADES]; // 208 - 719
+	glm::vec4 csmSplits01;        // 720 - 735  split[0..3]
+	glm::vec4 csmSplits23;        // 736 - 751  split[4..7]
 };
-// 208 bytes
+// 752 bytes
 
 struct RenderSettingsUBOData {
 	glm::vec4 ambientColor;       //  0 - 15
@@ -80,6 +85,7 @@ public:
 
 	void updateShadow(
 		DirectionalLight* dirLight,
+     Camera* camera,
 		const std::vector<PointLight*>& pointLights
 	);
 

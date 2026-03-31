@@ -10,6 +10,7 @@ class GBufferPass;
 class DeferredLightingPass;
 class PostProcessPass;
 class DebugAxis;
+class TemporalAA;
 
 /**
  * @brief 延迟渲染管线
@@ -40,21 +41,23 @@ public:
 	~DeferredRenderPipeline() override;
 
 	void init(int width, int height) override;
+    void resize(int width, int height) override;
 	void execute(const RenderContext& ctx) override;
 	Texture* getResolveColorAttachment() const override;
 
 	/// 获取Bloom对象（供GUI面板调参）
 	Bloom* getBloom() const;
+	TemporalAA* getTAA() const;
 
 	/// 获取Renderer对象（供GUI面板使用，用于前向渲染透明物体）
 	Renderer* getRenderer() const { return mRenderer.get(); }
 
-	/// 设置IBL资源
-	void setIBLResources(GLuint irradiance, GLuint prefiltered, GLuint brdfLUT);
-
 private:
 	/// 天空盒前向渲染（延迟光照后、后处理前）
 	void renderSkybox(const RenderContext& ctx);
+
+	/// 透明物体前向合成（延迟光照后、后处理前）
+	void renderTransparentMeshes(const RenderContext& ctx);
 
 	/// 各渲染Pass
 	std::unique_ptr<ShadowPass>           mShadowPass;
@@ -73,4 +76,8 @@ private:
 
 	int mWidth{ 0 };
 	int mHeight{ 0 };
+  bool mHasPrevCameraState{ false };
+	glm::vec3 mPrevCameraPosition{ 0.0f };
+	glm::vec3 mPrevCameraUp{ 0.0f, 1.0f, 0.0f };
+	glm::vec3 mPrevCameraRight{ 1.0f, 0.0f, 0.0f };
 };

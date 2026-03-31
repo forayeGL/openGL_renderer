@@ -6,6 +6,9 @@ RenderingPanel::RenderingPanel(
 	int&               shadowType,
 	glm::vec3&         clearColor,
 	glm::vec3&         ambientColor,
+   bool&              enableTAA,
+	float&             taaBlendFactor,
+	bool&              taaNeighborhoodClamp,
 	ScreenMaterial*    screenMat,
 	Bloom*             bloom,
 	GameCameraControl* cameraControl
@@ -14,6 +17,9 @@ RenderingPanel::RenderingPanel(
 	, mShadowType(shadowType)
 	, mClearColor(clearColor)
 	, mAmbientColor(ambientColor)
+ , mEnableTAA(enableTAA)
+	, mTaaBlendFactor(taaBlendFactor)
+	, mTaaNeighborhoodClamp(taaNeighborhoodClamp)
 	, mScreenMat(screenMat)
 	, mBloom(bloom)
 	, mCameraControl(cameraControl)
@@ -31,6 +37,12 @@ void RenderingPanel::onRender() {
 	ImGui::SliderFloat("Exposure",      &mScreenMat->mExposure, 0.0f, 10.0f);
 	ImGui::ColorEdit3("Clear Color",    &mClearColor.x);
 	ImGui::ColorEdit3("Ambient Color",  &mAmbientColor.x);
+
+	if (ImGui::CollapsingHeader("TAA", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Enable TAA", &mEnableTAA);
+		ImGui::SliderFloat("History Blend", &mTaaBlendFactor, 0.01f, 0.98f, "%.2f");
+		ImGui::Checkbox("Neighborhood Clamp", &mTaaNeighborhoodClamp);
+	}
 
 	if (ImGui::CollapsingHeader("Bloom", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::SliderFloat("Threshold",   &mBloom->mThreshold,        0.0f, 100.0f);
