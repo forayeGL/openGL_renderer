@@ -1,5 +1,6 @@
 #include "ubo_manager.h"
 #include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/directionalLightCSMShadow.h"
 #include "../light/shadow/pointLightShadow.h"
 #include "../../application/camera/orthographicCamera.h"
 #include <cstring>
@@ -109,30 +110,62 @@ void UBOManager::updateLights(
 
 void UBOManager::updateShadow(
 	DirectionalLight* dirLight,
+ Camera* camera,
 	const std::vector<PointLight*>& pointLights
 ) {
 	std::memset(&mShadowData, 0, sizeof(mShadowData));
 
 	if (dirLight && dirLight->mShadow) {
-		auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
-		mShadowData.lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
-		mShadowData.lightViewMatrix = glm::inverse(dirLight->getModelMatrix());
-		mShadowData.params1 = glm::vec4(
-			shadow->mBias, shadow->mPcfRadius,
-			shadow->mDiskTightness, shadow->mLightSize
-		);
+     mShadowData.flags.x = 1; // hasDirShadow
 
-		float nearPlane = 0.0f;
-		float frustum = 100.0f;
-		if (shadow->mCamera) {
-			nearPlane = shadow->mCamera->mNear;
-			auto* ortho = dynamic_cast<OrthographicCamera*>(shadow->mCamera);
-			if (ortho) {
-				frustum = ortho->mR - ortho->mL;
+		if (auto* csmShadow = dynamic_cast<DirectionalLightCSMShadow*>(dirLight->mShadow)) {
+			const int cascadeCount = std::clamp(csmShadow->mLayerCount, 1, MAX_CSM_CASCADES);
+			const float nearClip = std::max(camera ? camera->mNear : 0.1f, 0.01f);
+			const float farClip = std::max(camera ? camera->mFar : 200.0f, nearClip + 0.01f);
+
+			std::vector<float> clips;
+			csmShadow->generateCascadeLayers(clips, nearClip, farClip);
+			auto csmMatrices = csmShadow->getLightMatrices(camera, dirLight->getDirection(), clips);
+
+			mShadowData.params1 = glm::vec4(
+				csmShadow->mBias, csmShadow->mPcfRadius,
+				csmShadow->mDiskTightness, csmShadow->mLightSize
+			);
+			mShadowData.params2 = glm::vec4(nearClip, farClip - nearClip, 0.0f, 0.0f);
+			mShadowData.flags.z = cascadeCount;
+
+			for (int i = 0; i < cascadeCount && i < static_cast<int>(csmMatrices.size()); ++i) {
+				mShadowData.csmLightMatrices[i] = csmMatrices[i];
 			}
+
+			for (int i = 0; i < cascadeCount; ++i) {
+				const float split = clips[i + 1];
+				if (i < 4) {
+					mShadowData.csmSplits01[i] = split;
+				} else {
+					mShadowData.csmSplits23[i - 4] = split;
+				}
+			}
+		} else {
+			auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
+			mShadowData.lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
+			mShadowData.lightViewMatrix = glm::inverse(dirLight->getModelMatrix());
+			mShadowData.params1 = glm::vec4(
+				shadow->mBias, shadow->mPcfRadius,
+				shadow->mDiskTightness, shadow->mLightSize
+			);
+
+			float nearPlane = 0.0f;
+			float frustum = 100.0f;
+			if (shadow->mCamera) {
+				nearPlane = shadow->mCamera->mNear;
+				auto* ortho = dynamic_cast<OrthographicCamera*>(shadow->mCamera);
+				if (ortho) {
+					frustum = ortho->mR - ortho->mL;
+				}
+			}
+			mShadowData.params2 = glm::vec4(nearPlane, frustum, 0.0f, 0.0f);
 		}
-		mShadowData.params2 = glm::vec4(nearPlane, frustum, 0.0f, 0.0f);
-		mShadowData.flags.x = 1; // hasDirShadow
 	}
 
 	int count = std::min((int)pointLights.size(), MAX_POINT_SHADOW);

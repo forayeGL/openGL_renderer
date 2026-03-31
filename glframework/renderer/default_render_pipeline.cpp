@@ -3,6 +3,8 @@
 #include "bloom.h"
 #include "debug_axis.h"
 #include "temporal_aa.h"
+#include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/directionalLightCSMShadow.h"
 
 namespace {
 	constexpr float kCameraStateEpsilon = 1e-5f;
@@ -13,6 +15,20 @@ namespace {
 			|| glm::length(camera->mUp - prevUp) > kCameraStateEpsilon
 			|| glm::length(camera->mRight - prevRight) > kCameraStateEpsilon;
 	}
+
+	void ensureDirectionalShadowMode(DirectionalLight* dirLight, int shadowType) {
+		if (!dirLight) return;
+
+		const bool wantCSM = (shadowType == 2);
+		const bool isCSM = dynamic_cast<DirectionalLightCSMShadow*>(dirLight->mShadow) != nullptr;
+
+		if (wantCSM == isCSM) return;
+
+		delete dirLight->mShadow;
+		dirLight->mShadow = wantCSM
+			? static_cast<Shadow*>(new DirectionalLightCSMShadow())
+			: static_cast<Shadow*>(new DirectionalLightShadow());
+	}
 }
 
 // Constructors defined here so Renderer/Bloom are complete for unique_ptr deleters.
@@ -22,14 +38,33 @@ DefaultRenderPipeline::~DefaultRenderPipeline() = default;
 void DefaultRenderPipeline::init(int width, int height) {
 	mWidth  = width;
 	mHeight = height;
-	mRenderer  = std::make_unique<Renderer>();
+  if (!mRenderer) {
+		mRenderer = std::make_unique<Renderer>();
+	}
 	mBloom     = std::make_unique<Bloom>(width, height);
- mTAA       = std::make_unique<TemporalAA>(width, height);
+	mTAA       = std::make_unique<TemporalAA>(width, height);
 	mFboMulti  = std::unique_ptr<Framebuffer>(Framebuffer::createMultiSampleHDRFbo(width, height));
     mFboPreTAA = std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
 	mFboResolve= std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
-	mDebugAxis = std::make_unique<DebugAxis>();
+ if (!mDebugAxis) {
+		mDebugAxis = std::make_unique<DebugAxis>();
+	}
 	mUBOManager.init();
+   mHasPrevCameraState = false;
+}
+
+void DefaultRenderPipeline::resize(int width, int height) {
+	if (width <= 0 || height <= 0) return;
+	if (width == mWidth && height == mHeight) return;
+
+	mWidth = width;
+	mHeight = height;
+	mBloom = std::make_unique<Bloom>(width, height);
+	mTAA = std::make_unique<TemporalAA>(width, height);
+	mFboMulti = std::unique_ptr<Framebuffer>(Framebuffer::createMultiSampleHDRFbo(width, height));
+	mFboPreTAA = std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
+	mFboResolve = std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
+	mHasPrevCameraState = false;
 }
 
 Texture* DefaultRenderPipeline::getResolveColorAttachment() const {
@@ -47,6 +82,7 @@ void DefaultRenderPipeline::execute(const RenderContext& ctx) {
 	mRenderer->setAmbientColor(ctx.ambientColor);
 
 	const auto& lights = ctx.pointLights ? *ctx.pointLights : std::vector<PointLight*>{};
+   ensureDirectionalShadowMode(ctx.dirLight, ctx.shadowType);
  const bool taaEnabled = ctx.enableTAA && mTAA && ctx.camera;
 	if (taaEnabled) {
 		ctx.camera->setProjectionJitter(mTAA->consumeJitterNdc());
@@ -59,7 +95,7 @@ void DefaultRenderPipeline::execute(const RenderContext& ctx) {
 	const bool resetTAAHistory = ctx.taaResetHistory || cameraChanged;
 
 	mUBOManager.updateLights(ctx.dirLight, lights);
-	mUBOManager.updateShadow(ctx.dirLight, lights);
+ mUBOManager.updateShadow(ctx.dirLight, ctx.camera, lights);
 	mUBOManager.updateRenderSettings(
 		ctx.camera,
 		static_cast<RenderMode>(ctx.renderModeIdx),
@@ -96,7 +132,8 @@ void DefaultRenderPipeline::execute(const RenderContext& ctx) {
 
 	// Pass 4: post scene → screen (no shadow, no lights)
 	mRenderer->setRenderMode(RenderMode::Fill);
-	mRenderer->render(ctx.postScene, ctx.camera, nullptr, lights);
+  const auto emptyLights = std::vector<PointLight*>{};
+	mRenderer->render(ctx.postScene, ctx.camera, nullptr, emptyLights);
 
 	if (ctx.camera) {
 		mPrevCameraPosition = ctx.camera->mPosition;

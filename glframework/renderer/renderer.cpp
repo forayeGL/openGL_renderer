@@ -5,6 +5,7 @@
 #include "../../application/camera/orthographicCamera.h"
 #include "../shader_manager.h"
 #include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/directionalLightCSMShadow.h"
 #include "../light/shadow/pointLightShadow.h"
 
 #include <string>
@@ -77,7 +78,7 @@ void Renderer::render(
 
 	// Shadow map passes
 	if (dirLight && dirLight->mShadow) {
-		renderDirectionalShadow(dirLight, mOpacityObjects);
+     renderDirectionalShadow(dirLight, camera, mOpacityObjects);
 	}
 
 	for (auto* pl : pointLights) {
@@ -92,7 +93,7 @@ void Renderer::render(
 
 	// Update UBOs once per frame
 	mUBOManager.updateLights(dirLight, pointLights);
-	mUBOManager.updateShadow(dirLight, pointLights);
+    mUBOManager.updateShadow(dirLight, camera, pointLights);
 	mUBOManager.updateRenderSettings(camera, mRenderMode, mShadowType, mAmbientColor);
 
 	// Apply render mode
@@ -190,7 +191,10 @@ void Renderer::renderObject(
 		// Shadow texture samplers
 		// 始终将所有shadow sampler指向非冲突的纹理单元，
 		// 防止samplerCube默认指向unit 0导致类型冲突
-		shader->setInt("shadowMapSampler", 5);
+      const bool useCSM = (mShadowType == 2) && dirLight
+			&& dynamic_cast<DirectionalLightCSMShadow*>(dirLight->mShadow) != nullptr;
+		shader->setInt("shadowMapSampler", useCSM ? 13 : 5);
+		shader->setInt("csmShadowMapSampler", useCSM ? 5 : 13);
 		for (int i = 0; i < MAX_POINT_SHADOW; i++) {
 			shader->setInt("pointShadowMaps[" + std::to_string(i) + "]", 6 + i);
 		}
@@ -273,21 +277,13 @@ void Renderer::setFaceCullingState(Material* material) {
 
 void Renderer::renderDirectionalShadow(
 	DirectionalLight* dirLight,
+   Camera* camera,
 	const std::vector<Mesh*>& objects
 ) {
-	auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
-	auto* fbo = shadow->mRenderTarget;
-
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
-	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
-	glClear(GL_DEPTH_BUFFER_BIT);
-
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
-
-	auto lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
 
 	Shader* shaderReg = ShaderManager::getInstance().getOrCreate(
 		"assets/shaders/shadow/shadow.vert",
@@ -297,6 +293,58 @@ void Renderer::renderDirectionalShadow(
 		"assets/shaders/shadow/shadow_instanced.vert",
 		"assets/shaders/shadow/shadow.frag"
 	);
+
+    if (auto* csmShadow = dynamic_cast<DirectionalLightCSMShadow*>(dirLight->mShadow)) {
+		auto* fbo = csmShadow->mRenderTarget;
+		const int cascadeCount = std::max(1, csmShadow->mLayerCount);
+		const float nearClip = std::max(camera ? camera->mNear : 0.1f, 0.01f);
+		const float farClip = std::max(camera ? camera->mFar : 200.0f, nearClip + 0.01f);
+
+		std::vector<float> clips;
+		csmShadow->generateCascadeLayers(clips, nearClip, farClip);
+		auto lightMatrices = csmShadow->getLightMatrices(camera, dirLight->getDirection(), clips);
+
+		for (int layer = 0; layer < cascadeCount && layer < static_cast<int>(lightMatrices.size()); ++layer) {
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+			glFramebufferTextureLayer(
+				GL_FRAMEBUFFER,
+				GL_DEPTH_ATTACHMENT,
+				fbo->mDepthAttachment->getTexture(),
+				0,
+				layer
+			);
+			glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+			glClear(GL_DEPTH_BUFFER_BIT);
+
+			for (auto* mesh : objects) {
+				bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+				Shader* currentShader = isInstanced ? shaderInst : shaderReg;
+
+				currentShader->begin();
+				currentShader->setMatrix4x4("lightMatrix", lightMatrices[layer]);
+
+				glBindVertexArray(mesh->mGeometry->getVao());
+				if (isInstanced) {
+					auto* im = static_cast<InstancedMesh*>(mesh);
+					im->beforeDraw();
+					glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+				} else {
+					currentShader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+					glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+				}
+			}
+		}
+		return;
+	}
+
+	auto* shadow = static_cast<DirectionalLightShadow*>(dirLight->mShadow);
+	auto* fbo = shadow->mRenderTarget;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	auto lightMatrix = shadow->getLightMatrix(dirLight->getModelMatrix());
 
 	for (auto* mesh : objects) {
 		bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);

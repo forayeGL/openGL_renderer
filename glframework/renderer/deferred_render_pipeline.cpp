@@ -9,6 +9,9 @@
 #include "pass/postprocess_pass.h"
 #include "temporal_aa.h"
 #include "../shader_manager.h"
+#include "../light/shadow/directionalLightShadow.h"
+#include "../light/shadow/directionalLightCSMShadow.h"
+#include <algorithm>
 
 namespace {
 	constexpr float kCameraStateEpsilon = 1e-5f;
@@ -19,18 +22,44 @@ namespace {
 			|| glm::length(camera->mUp - prevUp) > kCameraStateEpsilon
 			|| glm::length(camera->mRight - prevRight) > kCameraStateEpsilon;
 	}
+
+	void ensureDirectionalShadowMode(DirectionalLight* dirLight, int shadowType) {
+		if (!dirLight) return;
+
+		const bool wantCSM = (shadowType == 2);
+		const bool isCSM = dynamic_cast<DirectionalLightCSMShadow*>(dirLight->mShadow) != nullptr;
+
+		if (wantCSM == isCSM) return;
+
+		delete dirLight->mShadow;
+		dirLight->mShadow = wantCSM
+			? static_cast<Shadow*>(new DirectionalLightCSMShadow())
+			: static_cast<Shadow*>(new DirectionalLightShadow());
+	}
 }
 
 DeferredRenderPipeline::DeferredRenderPipeline() = default;
 DeferredRenderPipeline::~DeferredRenderPipeline() = default;
 
 void DeferredRenderPipeline::init(int width, int height) {
-	mShadowPass      = std::make_unique<ShadowPass>();
-	mGBufferPass     = std::make_unique<GBufferPass>();
-	mLightingPass    = std::make_unique<DeferredLightingPass>();
-	mPostProcessPass = std::make_unique<PostProcessPass>();
-	mRenderer        = std::make_unique<Renderer>();
-	mDebugAxis       = std::make_unique<DebugAxis>();
+  if (!mShadowPass) {
+		mShadowPass = std::make_unique<ShadowPass>();
+	}
+	if (!mGBufferPass) {
+		mGBufferPass = std::make_unique<GBufferPass>();
+	}
+	if (!mLightingPass) {
+		mLightingPass = std::make_unique<DeferredLightingPass>();
+	}
+	if (!mPostProcessPass) {
+		mPostProcessPass = std::make_unique<PostProcessPass>();
+	}
+	if (!mRenderer) {
+		mRenderer = std::make_unique<Renderer>();
+	}
+	if (!mDebugAxis) {
+		mDebugAxis = std::make_unique<DebugAxis>();
+	}
 
 	mWidth  = width;
 	mHeight = height;
@@ -54,9 +83,31 @@ void DeferredRenderPipeline::init(int width, int height) {
 
 	// 后处理Pass
 	mPostProcessPass->init(width, height);
+   mHasPrevCameraState = false;
+}
 
-	// 前向渲染器（用于透明物体和后处理屏幕）
-	mRenderer = std::make_unique<Renderer>();
+void DeferredRenderPipeline::resize(int width, int height) {
+	if (width <= 0 || height <= 0) return;
+	if (width == mWidth && height == mHeight) return;
+
+	mWidth = width;
+	mHeight = height;
+
+	if (mShadowPass) {
+		mShadowPass->init(width, height);
+	}
+	if (mGBufferPass) {
+		mGBufferPass->init(width, height);
+	}
+	if (mLightingPass) {
+		mLightingPass->init(width, height);
+		mLightingPass->setUBOManager(&mUBOManager);
+	}
+	if (mPostProcessPass) {
+		mPostProcessPass->init(width, height);
+	}
+
+	mHasPrevCameraState = false;
 }
 
 Texture* DeferredRenderPipeline::getResolveColorAttachment() const {
@@ -75,18 +126,9 @@ TemporalAA* DeferredRenderPipeline::getTAA() const {
 	return mPostProcessPass ? mPostProcessPass->getTAA() : nullptr;
 }
 
-void DeferredRenderPipeline::setIBLResources(
-	GLuint irradiance, GLuint prefiltered, GLuint brdfLUT
-) {
-	if (mLightingPass) {
-		mLightingPass->setIrradianceMap(irradiance);
-		mLightingPass->setPrefilteredMap(prefiltered);
-		mLightingPass->setBRDFLUT(brdfLUT);
-	}
-}
-
 void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 	const auto& lights = ctx.pointLights ? *ctx.pointLights : std::vector<PointLight*>{};
+  ensureDirectionalShadowMode(ctx.dirLight, ctx.shadowType);
 	const bool taaEnabled = ctx.enableTAA && ctx.camera && mPostProcessPass && mPostProcessPass->getTAA();
 	if (taaEnabled) {
 		ctx.camera->setProjectionJitter(mPostProcessPass->getTAA()->consumeJitterNdc());
@@ -127,7 +169,7 @@ void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 	// 阶段2：更新UBO数据
 	// ==========================================
 	mUBOManager.updateLights(ctx.dirLight, lights);
-	mUBOManager.updateShadow(ctx.dirLight, lights);
+ mUBOManager.updateShadow(ctx.dirLight, ctx.camera, lights);
 	mUBOManager.updateRenderSettings(
 		ctx.camera,
 		static_cast<RenderMode>(ctx.renderModeIdx),
@@ -153,6 +195,7 @@ void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 	// 阶段5：天空盒前向渲染
 	// ==========================================
 	renderSkybox(ctx);
+	renderTransparentMeshes(ctx);
 
 	if (ctx.enableAxis) {
 		mDebugAxis->render(ctx, mLightingPass->getOutputFBO()->mFBO, mWidth, mHeight);
@@ -170,9 +213,10 @@ void DeferredRenderPipeline::execute(const RenderContext& ctx) {
 	mRenderer->setClearColor(ctx.clearColor);
 	mRenderer->setRenderMode(RenderMode::Fill);
 	mRenderer->setAmbientColor(ctx.ambientColor);
+	const auto emptyLights = std::vector<PointLight*>{};
 
 	// 渲染后处理屏幕（ScreenMaterial读取后处理结果纹理）
-	mRenderer->render(ctx.postScene, ctx.camera, nullptr, lights);
+  mRenderer->render(ctx.postScene, ctx.camera, nullptr, emptyLights);
 
 	if (ctx.camera) {
 		mPrevCameraPosition = ctx.camera->mPosition;
@@ -230,4 +274,53 @@ void DeferredRenderPipeline::renderSkybox(const RenderContext& ctx) {
 	// 恢复深度状态
 	glDepthMask(GL_TRUE);
 	glDepthFunc(GL_LESS);
+}
+
+void DeferredRenderPipeline::renderTransparentMeshes(const RenderContext& ctx) {
+	if (!mGBufferPass || !mLightingPass || !mRenderer) return;
+
+	const auto& transparentMeshes = mGBufferPass->getTransparentMeshes();
+	if (transparentMeshes.empty()) return;
+
+	const auto& lights = ctx.pointLights ? *ctx.pointLights : std::vector<PointLight*>{};
+
+	mRenderer->setRenderMode(static_cast<RenderMode>(ctx.renderModeIdx));
+	mRenderer->setShadowType(ctx.shadowType);
+	mRenderer->setAmbientColor(ctx.ambientColor);
+
+	auto& rendererUBO = mRenderer->getUBOManager();
+	rendererUBO.updateLights(ctx.dirLight, lights);
+	rendererUBO.updateShadow(ctx.dirLight, ctx.camera, lights);
+	rendererUBO.updateRenderSettings(
+		ctx.camera,
+		static_cast<RenderMode>(ctx.renderModeIdx),
+		ctx.shadowType,
+		ctx.ambientColor
+	);
+
+	std::vector<Mesh*> sortedTransparent = transparentMeshes;
+	if (ctx.camera) {
+		auto viewMatrix = ctx.camera->getViewMatrix();
+		std::sort(
+			sortedTransparent.begin(),
+			sortedTransparent.end(),
+			[&viewMatrix](const Mesh* a, const Mesh* b) {
+				auto worldPositionA = a->getModelMatrix() * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+				auto cameraPositionA = viewMatrix * worldPositionA;
+				auto worldPositionB = b->getModelMatrix() * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+				auto cameraPositionB = viewMatrix * worldPositionB;
+				return cameraPositionA.z < cameraPositionB.z;
+			}
+		);
+	}
+
+	auto* outputFBO = mLightingPass->getOutputFBO();
+	if (!outputFBO) return;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, outputFBO->mFBO);
+	glViewport(0, 0, mWidth, mHeight);
+
+	for (auto* mesh : sortedTransparent) {
+		mRenderer->renderObject(mesh, ctx.camera, ctx.dirLight, lights);
+	}
 }

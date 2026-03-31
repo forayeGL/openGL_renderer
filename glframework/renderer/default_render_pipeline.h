@@ -17,6 +17,7 @@ public:
 	~DefaultRenderPipeline() override; // defined in .cpp where Renderer/Bloom are complete
 
 	void init(int width, int height) override;
+    void resize(int width, int height) override;
 	void execute(const RenderContext& ctx) override;
 	Texture* getResolveColorAttachment() const override;
 

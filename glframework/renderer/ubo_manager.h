@@ -11,6 +11,7 @@
 
 static constexpr int MAX_POINT_LIGHTS = 8;
 static constexpr int MAX_POINT_SHADOW = 8;
+static constexpr int MAX_CSM_CASCADES = 8;
 
 // ---- Render Mode enum (shared with GUI) ----
 enum class RenderMode : int {
@@ -50,9 +51,12 @@ struct ShadowUBOData {
 	glm::vec4 params2;            // 144 - 159  x=nearPlane, y=frustum
 	glm::vec4 pointShadowFar01;   // 160 - 175  far[0..3]
 	glm::vec4 pointShadowFar23;   // 176 - 191  far[4..7]
-	glm::ivec4 flags;             // 192 - 207  x=hasDirShadow, y=numPointShadows
+   glm::ivec4 flags;             // 192 - 207  x=hasDirShadow, y=numPointShadows, z=csmCascadeCount
+	glm::mat4 csmLightMatrices[MAX_CSM_CASCADES]; // 208 - 719
+	glm::vec4 csmSplits01;        // 720 - 735  split[0..3]
+	glm::vec4 csmSplits23;        // 736 - 751  split[4..7]
 };
-// 208 bytes
+// 752 bytes
 
 struct RenderSettingsUBOData {
 	glm::vec4 ambientColor;       //  0 - 15
@@ -81,6 +85,7 @@ public:
 
 	void updateShadow(
 		DirectionalLight* dirLight,
+     Camera* camera,
 		const std::vector<PointLight*>& pointLights
 	);
 

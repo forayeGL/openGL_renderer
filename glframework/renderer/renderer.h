@@ -34,6 +34,7 @@ public:
 
 	void renderDirectionalShadow(
 		DirectionalLight* dirLight,
+       Camera* camera,
 		const std::vector<Mesh*>& objects
 	);
 

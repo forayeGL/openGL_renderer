@@ -43,7 +43,7 @@ uniform samplerCube pointShadowMaps[MAX_POINT_SHADOW];   // 点光源立方体�
 uniform samplerCube irradianceMap;    // 漫反射辐照度贴图
 uniform samplerCube prefilteredMap;   // 镜面反射预滤波环境贴图
 uniform sampler2D   brdfLUT;         // BRDF积分查找表
-uniform int         useIBL;          // 是否启用IBL
+uniform int         useIBLResources; // IBL资源是否可用
 
 // ==========================================
 // 常量定义
@@ -73,7 +73,7 @@ float calcDirectionalShadow(vec3 worldPos, vec3 N) {
 
     if (shadowType == 2) { // CSM
         int layer = getCurrentLayer(worldPos);
-        vec4 lightSpaceClipCoord = lightMatrices[layer] * vec4(worldPos, 1.0);
+        vec4 lightSpaceClipCoord = getCsmLightMatrix(layer) * vec4(worldPos, 1.0);
         float pcfRadius = getShadowPcfRadius();
         float shadow = pcfCSM(lightSpaceClipCoord, layer, N, lightDir, pcfRadius);
         return 1.0 - shadow;
@@ -247,6 +247,7 @@ void main()
     float metallic  = texture(gAlbedo, vUV).a;
     float roughness = texture(gParam, vUV).r;
     float ao        = texture(gParam, vUV).g;
+    float iblMask   = texture(gParam, vUV).b;
 
     // 跳过GBuffer中未写入的像素（位置为零向量）
     if (length(worldPos) < 0.001) {
@@ -304,7 +305,7 @@ void main()
     vec3 ambient = vec3(0.0);
     float NdotV = max(dot(N, V), 0.0);
 
-    if (useIBL > 0) {
+    if (useIBLResources > 0 && iblMask > 0.5) {
         // 漫反射间接光照：从辐照度贴图采样
         vec3 F_ibl = fresnelSchlickRoughness(F0, NdotV, roughness);
         vec3 kD_ibl = (vec3(1.0) - F_ibl) * (1.0 - metallic);

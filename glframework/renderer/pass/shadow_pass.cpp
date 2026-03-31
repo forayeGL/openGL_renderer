@@ -3,7 +3,9 @@
 #include "../../mesh/instancedMesh.h"
 #include "../../shader_manager.h"
 #include "../../light/shadow/directionalLightShadow.h"
+#include "../../light/shadow/directionalLightCSMShadow.h"
 #include "../../light/shadow/pointLightShadow.h"
+#include <algorithm>
 
 ShadowPass::ShadowPass() = default;
 ShadowPass::~ShadowPass() = default;
@@ -27,23 +29,6 @@ void ShadowPass::execute(const RenderContext& ctx) {
 void ShadowPass::renderDirectionalShadow(const RenderContext& ctx) {
 	if (!ctx.dirLight || !ctx.dirLight->mShadow) return;
 
-	auto* shadow = static_cast<DirectionalLightShadow*>(ctx.dirLight->mShadow);
-	auto* fbo = shadow->mRenderTarget;
-
-	// 绑定阴影FBO并设置Viewport
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
-	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
-	glClear(GL_DEPTH_BUFFER_BIT);
-
-	// 设置深度测试状态
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
-
-	// 计算光源空间变换矩阵
-	auto lightMatrix = shadow->getLightMatrix(ctx.dirLight->getModelMatrix());
-
 	Shader* shaderReg = ShaderManager::getInstance().getOrCreate(
 		"assets/shaders/shadow/shadow.vert",
 		"assets/shaders/shadow/shadow.frag"
@@ -52,6 +37,64 @@ void ShadowPass::renderDirectionalShadow(const RenderContext& ctx) {
 		"assets/shaders/shadow/shadow_instanced.vert",
 		"assets/shaders/shadow/shadow.frag"
 	);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+
+	if (auto* csmShadow = dynamic_cast<DirectionalLightCSMShadow*>(ctx.dirLight->mShadow)) {
+		auto* fbo = csmShadow->mRenderTarget;
+		const int cascadeCount = std::max(1, csmShadow->mLayerCount);
+		const float nearClip = std::max(ctx.camera ? ctx.camera->mNear : 0.1f, 0.01f);
+		const float farClip = std::max(ctx.camera ? ctx.camera->mFar : 200.0f, nearClip + 0.01f);
+
+		std::vector<float> clips;
+		csmShadow->generateCascadeLayers(clips, nearClip, farClip);
+		auto lightMatrices = csmShadow->getLightMatrices(ctx.camera, ctx.dirLight->getDirection(), clips);
+
+		for (int layer = 0; layer < cascadeCount && layer < static_cast<int>(lightMatrices.size()); ++layer) {
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+			glFramebufferTextureLayer(
+				GL_FRAMEBUFFER,
+				GL_DEPTH_ATTACHMENT,
+				fbo->mDepthAttachment->getTexture(),
+				0,
+				layer
+			);
+			glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+			glClear(GL_DEPTH_BUFFER_BIT);
+
+			for (auto* mesh : mOpaqueMeshes) {
+				const bool isInstanced = (mesh->getType() == ObjectType::InstancedMesh);
+				Shader* currentShader = isInstanced ? shaderInst : shaderReg;
+				currentShader->begin();
+				currentShader->setMatrix4x4("lightMatrix", lightMatrices[layer]);
+
+				glBindVertexArray(mesh->mGeometry->getVao());
+				if (isInstanced) {
+					auto* im = static_cast<InstancedMesh*>(mesh);
+					im->beforeDraw();
+					glDrawElementsInstanced(GL_TRIANGLES, im->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0, im->mInstanceCount);
+				} else {
+					currentShader->setMatrix4x4("modelMatrix", mesh->getModelMatrix());
+					glDrawElements(GL_TRIANGLES, mesh->mGeometry->getIndicesCount(), GL_UNSIGNED_INT, 0);
+				}
+			}
+		}
+		return;
+	}
+
+	auto* shadow = static_cast<DirectionalLightShadow*>(ctx.dirLight->mShadow);
+	auto* fbo = shadow->mRenderTarget;
+
+	// 绑定阴影FBO并设置Viewport
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo->mFBO);
+	glViewport(0, 0, fbo->mWidth, fbo->mHeight);
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	// 计算光源空间变换矩阵
+	auto lightMatrix = shadow->getLightMatrix(ctx.dirLight->getModelMatrix());
 
 	// 逐物体渲染深度
 	for (auto* mesh : mOpaqueMeshes) {

@@ -7,14 +7,14 @@
 //   RT0 (gPosition): 世界空间位置 (rgb) + 备用 (a)
 //   RT1 (gNormal):   世界空间法线 (rgb) + 备用 (a)
 //   RT2 (gAlbedo):   反照率 (rgb) + 金属度 (a)
-//   RT3 (gParam):    粗糙度 (r) + AO (g) + 自发光标志 (b) + 备用 (a)
+//   RT3 (gParam):    粗糙度 (r) + AO (g) + IBL启用标志 (b) + 备用 (a)
 // ============================================================================
 
 // 多渲染目标输出
 layout (location = 0) out vec4 gPosition;   // 世界空间位置
 layout (location = 1) out vec4 gNormal;     // 世界空间法线
 layout (location = 2) out vec4 gAlbedo;     // 反照率 + 金属度
-layout (location = 3) out vec4 gParam;      // 粗糙度 + AO + 自发光
+layout (location = 3) out vec4 gParam;      // 粗糙度 + AO + IBL启用标志
 
 // 来自顶点着色器的输入
 in vec2 vUV;
@@ -27,9 +27,19 @@ uniform sampler2D albedoTex;      // 反照率贴图
 uniform sampler2D normalTex;      // 法线贴图
 uniform sampler2D roughnessTex;   // 粗糙度贴图
 uniform sampler2D metallicTex;    // 金属度贴图
+uniform sampler2D aoTex;          // AO贴图
 
 // 是否使用法线贴图的标志（当没有法线贴图时使用顶点法线）
 uniform int useNormalMap;
+uniform int useAlbedoMap;
+uniform int useMetallicMap;
+uniform int useRoughnessMap;
+uniform int useAOMap;
+uniform vec3 albedoValue;
+uniform float metallicValue;
+uniform float roughnessValue;
+uniform float aoValue;
+uniform int useIBL;
 
 void main()
 {
@@ -49,13 +59,13 @@ void main()
     gNormal = vec4(N, 0.0);
 
     // RT2: 反照率（sRGB空间采样后自动线性化）+ 金属度
-    vec3 albedo = texture(albedoTex, vUV).rgb;
-    float metallic = texture(metallicTex, vUV).b;   // 通常存储在蓝色通道
+    vec3 albedo = useAlbedoMap > 0 ? texture(albedoTex, vUV).rgb : albedoValue;
+    float metallic = useMetallicMap > 0 ? texture(metallicTex, vUV).b : metallicValue;   // 通常存储在蓝色通道
     gAlbedo = vec4(albedo, metallic);
 
-    // RT3: 粗糙度 + AO + 自发光标志
-    float roughness = texture(roughnessTex, vUV).r;  // 通常存储在红色通道
-    float ao = 1.0;                                   // 如果有AO贴图可以在这里采样
-    float emissive = 0.0;                              // 自发光标志
-    gParam = vec4(roughness, ao, emissive, 1.0);
+    // RT3: 粗糙度 + AO + IBL启用标志
+    float roughness = useRoughnessMap > 0 ? texture(roughnessTex, vUV).r : roughnessValue;  // 通常存储在红色通道
+    float ao = useAOMap > 0 ? texture(aoTex, vUV).r : aoValue;
+    float iblEnabled = useIBL > 0 ? 1.0 : 0.0;
+    gParam = vec4(roughness, ao, iblEnabled, 1.0);
 }

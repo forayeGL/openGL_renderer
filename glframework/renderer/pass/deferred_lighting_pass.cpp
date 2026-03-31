@@ -2,6 +2,7 @@
 #include "../../shader_manager.h"
 #include "../../geometry.h"
 #include "../ubo_manager.h"
+#include "../../light/shadow/directionalLightCSMShadow.h"
 
 DeferredLightingPass::DeferredLightingPass() = default;
 DeferredLightingPass::~DeferredLightingPass() = default;
@@ -14,7 +15,9 @@ void DeferredLightingPass::init(int width, int height) {
 	mOutputFBO = std::unique_ptr<Framebuffer>(Framebuffer::createHDRFbo(width, height));
 
 	// 创建全屏四边形（延迟光照使用全屏Pass方式）
-	mScreenQuad = Geometry::createScreenPlane();
+    if (!mScreenQuad) {
+		mScreenQuad = Geometry::createScreenPlane();
+	}
 }
 
 Texture* DeferredLightingPass::getOutputColorTexture() const {
@@ -44,6 +47,10 @@ void DeferredLightingPass::execute(const RenderContext& ctx) {
 	// 绑定UBOs（光源、阴影、渲染设置）
 	if (mUBOManager) {
 		mUBOManager->bindToShader(shader->getProgram());
+	}
+
+	if (ctx.camera) {
+		shader->setMatrix4x4("viewMatrix", ctx.camera->getViewMatrix());
 	}
 
 	// ==========================================
@@ -80,14 +87,19 @@ void DeferredLightingPass::execute(const RenderContext& ctx) {
 	// 绑定阴影贴图到纹理单元 4-5+
 	// ==========================================
 
-	// 始终将shadowMapSampler指向unit 4，避免默认指向unit 0（GBuffer sampler2D）
-	shader->setInt("shadowMapSampler", 4);
+  const bool useCSM = (ctx.shadowType == 2)
+		&& ctx.dirLight
+		&& dynamic_cast<DirectionalLightCSMShadow*>(ctx.dirLight->mShadow) != nullptr;
+
+	// 为不同shadow sampler提供固定且不冲突的纹理单元
+	shader->setInt("shadowMapSampler", useCSM ? 13 : 4);
+	shader->setInt("csmShadowMapSampler", useCSM ? 4 : 13);
 
 	// 方向光阴影贴图
 	if (ctx.dirLight && ctx.dirLight->mShadow) {
 		auto* shadow = ctx.dirLight->mShadow;
 		if (shadow->mRenderTarget && shadow->mRenderTarget->mDepthAttachment) {
-			shadow->mRenderTarget->mDepthAttachment->setUnit(4);
+          shadow->mRenderTarget->mDepthAttachment->setUnit(4);
 			shadow->mRenderTarget->mDepthAttachment->bind();
 		}
 	}
@@ -114,29 +126,29 @@ void DeferredLightingPass::execute(const RenderContext& ctx) {
 	// 绑定IBL纹理到纹理单元 14-16
 	// ==========================================
 
-	// IBL辐照度贴图（漫反射间接光照）
-	if (mIrradianceMap) {
+    // IBL辐照度贴图（漫反射间接光照）
+	if (ctx.iblIrradianceMap) {
 		glActiveTexture(GL_TEXTURE14);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, mIrradianceMap);
+     glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.iblIrradianceMap);
 		shader->setInt("irradianceMap", 14);
 	}
 
 	// IBL预滤波环境贴图（镜面反射间接光照）
-	if (mPrefilteredMap) {
+  if (ctx.iblPrefilteredMap) {
 		glActiveTexture(GL_TEXTURE15);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, mPrefilteredMap);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, ctx.iblPrefilteredMap);
 		shader->setInt("prefilteredMap", 15);
 	}
 
 	// BRDF积分查找表
-	if (mBRDFLUT) {
+ if (ctx.iblBRDFLUT) {
 		glActiveTexture(GL_TEXTURE16);
-		glBindTexture(GL_TEXTURE_2D, mBRDFLUT);
+     glBindTexture(GL_TEXTURE_2D, ctx.iblBRDFLUT);
 		shader->setInt("brdfLUT", 16);
 	}
 
-	// 设置IBL启用标志
-	shader->setInt("useIBL", (mIrradianceMap && mPrefilteredMap && mBRDFLUT) ? 1 : 0);
+    // 设置IBL资源可用标志（材质级开关由GBuffer中的iblMask控制）
+ shader->setInt("useIBLResources", (ctx.iblIrradianceMap && ctx.iblPrefilteredMap && ctx.iblBRDFLUT) ? 1 : 0);
 
 	// ==========================================
 	// 绘制全屏四边形，执行光照计算

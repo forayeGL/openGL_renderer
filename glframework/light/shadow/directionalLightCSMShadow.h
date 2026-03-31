@@ -14,4 +14,5 @@ public:
 	std::vector<glm::mat4> getLightMatrices(Camera* camera, glm::vec3 lightDir, const std::vector<float>& clips);
 public:
 	int mLayerCount = 7;
+  float mSplitLambda = 0.75f;
 };

@@ -19,6 +19,15 @@ uniform sampler2D metallicTex;
 uniform sampler2D normalTex;
 uniform sampler2D aoTex;
 
+uniform int useAlbedoMap;
+uniform int useMetallicMap;
+uniform int useRoughnessMap;
+uniform int useAOMap;
+uniform vec3 albedoValue;
+uniform float metallicValue;
+uniform float roughnessValue;
+uniform float aoValue;
+
 // ==========================================
 // 阴影贴图
 // ==========================================
@@ -49,7 +58,7 @@ float calcDirectionalShadow(vec3 worldPos, vec3 N) {
 
     if (shadowType == 2) { // CSM
         int layer = getCurrentLayer(worldPos);
-        vec4 lightSpaceClipCoord = lightMatrices[layer] * vec4(worldPos, 1.0);
+        vec4 lightSpaceClipCoord = getCsmLightMatrix(layer) * vec4(worldPos, 1.0);
         float pcfRadius = getShadowPcfRadius();
         float shadow = pcfCSM(lightSpaceClipCoord, layer, N, lightDir, pcfRadius);
         return 1.0 - shadow;
@@ -231,10 +240,10 @@ void main()
     }
 
     // Sample PBR textures
-    vec3  albedo    = texture(albedoTex, uv).xyz;
-    float metallic  = texture(metallicTex, uv).b;
-    float roughness = texture(roughnessTex, uv).r;
-    float ao        = texture(aoTex, uv).r;
+    vec3  albedo    = useAlbedoMap > 0 ? texture(albedoTex, uv).xyz : albedoValue;
+    float metallic  = useMetallicMap > 0 ? texture(metallicTex, uv).b : metallicValue;
+    float roughness = useRoughnessMap > 0 ? texture(roughnessTex, uv).r : roughnessValue;
+    float ao        = useAOMap > 0 ? texture(aoTex, uv).r : aoValue;
 
     vec3 V  = normalize(uCameraPosition.xyz - worldPosition);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);

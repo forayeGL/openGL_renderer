@@ -43,24 +43,37 @@ vec3 lightDirN = normalize(lightDir);
 return max(shadowParams1.x * (1.0 - dot(normalN, lightDirN)), 0.0002);
 }
 
-// CSM Uniforms
-uniform int csmLayerCount;
-uniform float csmLayers[20];
-uniform mat4 lightMatrices[20];
 uniform mat4 viewMatrix;
 uniform sampler2DArray csmShadowMapSampler;
+
+int getCsmLayerCount() {
+    return max(shadowFlags.z, 0);
+}
+
+float getCsmSplit(int i) {
+    if (i < 4) return csmSplits01[i];
+    return csmSplits23[i - 4];
+}
+
+mat4 getCsmLightMatrix(int i) {
+    return csmLightMatrices[i];
+}
 
 int getCurrentLayer(vec3 positionWorldSpace){
 vec3 positionCameraSpace = (viewMatrix * vec4(positionWorldSpace, 1.0)).xyz;
 float z = -positionCameraSpace.z;
-int layer = 0;
-for(int i = 0;i <= csmLayerCount;i++){
-if(z < csmLayers[i]){
-layer = i - 1;
-break;
-}
-}
-return layer;
+  int cascadeCount = getCsmLayerCount();
+    if (cascadeCount <= 0) {
+        return 0;
+    }
+
+    for (int i = 0; i < cascadeCount && i < MAX_CSM_CASCADES; i++) {
+        if (z < getCsmSplit(i)) {
+            return i;
+        }
+    }
+
+    return min(cascadeCount - 1, MAX_CSM_CASCADES - 1);
 }
 
 float pcfCSM(vec4 lightSpaceClipCoord, int layer, vec3 normal, vec3 lightDir, float pcfUVRadius){

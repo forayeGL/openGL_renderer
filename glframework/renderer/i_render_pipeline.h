@@ -12,6 +12,12 @@ public:
 	// Called once after OpenGL context is ready.
 	virtual void init(int width, int height) = 0;
 
+	// Called when framebuffer size changes.
+	// Default behavior reuses init() to rebuild size-dependent resources.
+	virtual void resize(int width, int height) {
+		init(width, height);
+	}
+
 	// Execute one full frame using the data in ctx.
 	virtual void execute(const RenderContext& ctx) = 0;
 
